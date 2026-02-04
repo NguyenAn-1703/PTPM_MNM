@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Context } from '../services/api';
+import type { Context } from '../services/api';
+
 
 interface Message {
   id: string;

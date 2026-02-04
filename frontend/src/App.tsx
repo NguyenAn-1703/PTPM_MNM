@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import './styles/index.css';
+import './styles/index';
+import { api, type Context, type StatusResponse } from './services/api';
 import { Sidebar, FileUpload, ChatInterface } from './components';
-import { api, StatusResponse, Context } from './services/api';
+
 
 function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);

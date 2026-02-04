@@ -1,5 +1,6 @@
 import React from 'react';
-import { StatusResponse } from '../services/api';
+import type { StatusResponse } from '../services/api';
+
 
 interface SidebarProps {
   status: StatusResponse | null;
