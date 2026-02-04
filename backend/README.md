@@ -36,16 +36,10 @@ python manage.py runserver
 ```
 
 ## 6. API
-
-### Upload tài liệu
-- URL: `POST /api/upload/`
-- Form-data: `file=<PDF/DOCX/PNG/JPG>`
-
-### Chat
-- URL: `POST /api/chat/`
-- JSON: `{ "question": "<câu hỏi>" }`
-
-## 7. Biến môi trường
-Copy file `.env.example` thành `.env` để chỉnh cấu hình:
-- `OLLAMA_LLM`: deepseek-r1:7b
-- `EMBEDDING_MODEL`: paraphrase-multilingual-mpnet-base-v2
+```bash
+ Endpoint	    Method	        Mô tả
+/api/upload/	POST	        Upload file PDF/Word/Image
+/api/chat/	    POST	        Chat với RAG
+/api/status/	GET	            Kiểm tra trạng thái
+/api/clear/	    DELETE	        Xóa vector store
+```

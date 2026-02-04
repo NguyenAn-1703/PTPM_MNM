@@ -2,7 +2,7 @@
 __pycache__/
 *.pyc
 .DS_Store
-
+PROMPT.md
 # Logs
 logs
 *.log
