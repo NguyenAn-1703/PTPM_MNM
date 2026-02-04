@@ -1,0 +1,27 @@
+# Web Framework
+django
+djangorestframework
+django-cors-headers
+
+# LangChain & AI
+langchain
+langchain-text-splitters
+
+langchain-chroma
+langchain-ollama
+langchain-huggingface
+
+
+# Vector Database & Xử lý PDF
+chromadb
+faiss-cpu
+pypdf
+sentence-transformers
+python-docx
+pytesseract
+Pillow
+
+
+# Tiện ích
+python-dotenv
+requests
