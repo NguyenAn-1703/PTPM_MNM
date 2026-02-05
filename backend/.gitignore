@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 .DS_Store
+vectors_store/
+db.sqlite3
 
 # Logs
 logs
