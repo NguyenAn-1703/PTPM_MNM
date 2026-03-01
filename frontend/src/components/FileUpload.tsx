@@ -7,14 +7,14 @@ interface FileUploadProps {
 
 export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading }) => {
   const [isDragging, setIsDragging] = useState(false);
-  
+
   const ALLOWED_TYPES = [
     'application/pdf',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'application/msword',
     'image/png',
     'image/jpeg',
-    'image/jpg'
+    'image/jpg',
   ];
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -30,18 +30,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading })
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    
     const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      handleFile(files[0]);
-    }
+    if (files.length > 0) handleFile(files[0]);
   }, []);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (files && files.length > 0) {
-      handleFile(files[0]);
-    }
+    if (files && files.length > 0) handleFile(files[0]);
   };
 
   const handleFile = async (file: File) => {
@@ -53,51 +48,52 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading })
   };
 
   return (
-    <div
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className={`
-        relative p-8 rounded-2xl border-2 border-dashed transition-all duration-300
-        ${isDragging 
-          ? 'border-indigo-500 bg-indigo-500/10' 
-          : 'border-slate-600 hover:border-slate-500 bg-slate-800/30'
-        }
-        ${isUploading ? 'pointer-events-none opacity-60' : 'cursor-pointer'}
-      `}
-    >
-      <input
-        type="file"
-        onChange={handleFileInput}
-        accept=".pdf,.docx,.doc,.png,.jpg,.jpeg"
-        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-        disabled={isUploading}
-      />
-      
-      <div className="flex flex-col items-center gap-4 text-center">
+    <div className="relative group">
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`
+          relative w-full h-48 rounded-2xl border-2 border-dashed transition-all duration-300
+          flex flex-col items-center justify-center cursor-pointer overflow-hidden
+          ${isDragging
+            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10'
+            : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-slate-800/30 hover:bg-gray-100 dark:hover:bg-slate-800/50 hover:border-indigo-400 dark:hover:border-indigo-500'
+          }
+          ${isUploading ? 'pointer-events-none opacity-70' : ''}
+        `}
+      >
+        <input
+          type="file"
+          onChange={handleFileInput}
+          accept=".pdf,.docx,.doc,.png,.jpg,.jpeg"
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          disabled={isUploading}
+          title="Upload files"
+        />
+
         {isUploading ? (
           <>
-            <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-slate-300">Đang xử lý tài liệu...</p>
+            <div className="mb-3 p-4 rounded-full bg-indigo-500/10 dark:bg-indigo-500/20">
+              <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" style={{ borderWidth: '3px' }} />
+            </div>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Đang xử lý tài liệu...</p>
           </>
         ) : (
           <>
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center">
-              <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
+            <div className="mb-3 p-4 rounded-full bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-500 dark:text-indigo-400 group-hover:scale-110 transition-transform duration-300">
+              <span className="material-icons-round" style={{ fontSize: '30px' }}>cloud_upload</span>
             </div>
-            <div>
-              <p className="text-white font-medium mb-1">
-                Kéo thả file vào đây
-              </p>
-              <p className="text-sm text-slate-400">
-                hoặc <span className="text-indigo-400">nhấn để chọn file</span>
-              </p>
-            </div>
-            <div className="flex gap-2 flex-wrap justify-center">
-              {['PDF', 'DOCX', 'PNG', 'JPG'].map(type => (
-                <span key={type} className="px-2 py-1 text-xs bg-slate-700/50 text-slate-300 rounded">
+            <h3 className="text-base font-medium text-gray-700 dark:text-gray-200">Kéo thả file vào đây</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              hoặc <span className="text-indigo-500 hover:underline font-medium cursor-pointer">nhấn để chọn file</span>
+            </p>
+            <div className="flex gap-2 mt-4">
+              {['PDF', 'DOCX', 'PNG', 'JPG'].map((type) => (
+                <span
+                  key={type}
+                  className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-slate-700 rounded"
+                >
                   {type}
                 </span>
               ))}
