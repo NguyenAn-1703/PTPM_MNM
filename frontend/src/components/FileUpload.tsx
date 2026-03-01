@@ -3,9 +3,10 @@ import React, { useState, useCallback } from 'react';
 interface FileUploadProps {
   onUpload: (file: File) => Promise<void>;
   isUploading: boolean;
+  compact?: boolean;
 }
 
-export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading }) => {
+export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, compact = false }) => {
   const [isDragging, setIsDragging] = useState(false);
 
   const ALLOWED_TYPES = [
@@ -37,6 +38,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading })
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) handleFile(files[0]);
+    e.target.value = '';
   };
 
   const handleFile = async (file: File) => {
@@ -47,6 +49,33 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading })
     await onUpload(file);
   };
 
+  // Compact mode: small button only
+  if (compact) {
+    return (
+      <label className={`relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full cursor-pointer transition-all duration-200
+        bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400
+        hover:bg-indigo-100 dark:hover:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30
+        ${isUploading ? 'opacity-60 pointer-events-none' : ''}
+      `}>
+        <input
+          type="file"
+          onChange={handleFileInput}
+          accept=".pdf,.docx,.doc,.png,.jpg,.jpeg"
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          disabled={isUploading}
+          title="Upload thêm file"
+        />
+        {isUploading ? (
+          <div className="w-3.5 h-3.5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <span className="material-icons-round" style={{ fontSize: '14px' }}>add</span>
+        )}
+        <span className="text-xs font-medium">Thêm tài liệu</span>
+      </label>
+    );
+  }
+
+  // Full upload zone
   return (
     <div className="relative group">
       <div
@@ -54,7 +83,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading })
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={`
-          relative w-full h-48 rounded-2xl border-2 border-dashed transition-all duration-300
+          relative w-full h-56 rounded-2xl border-2 border-dashed transition-all duration-300
           flex flex-col items-center justify-center cursor-pointer overflow-hidden
           ${isDragging
             ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10'

@@ -142,18 +142,43 @@ function App() {
           </div>
         )}
 
-        {/* Upload Section */}
-        <div className="flex-shrink-0 p-4 md:p-8 pb-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-slate-800/50">
-          <div className="max-w-5xl mx-auto">
-            <div className="flex items-center gap-2 mb-4 text-gray-700 dark:text-gray-300">
-              <span className="material-icons-round text-amber-500" style={{ fontSize: '22px' }}>folder_open</span>
-              <h2 className="font-semibold text-lg">Upload Tài Liệu</h2>
-            </div>
-            <FileUpload onUpload={handleUpload} isUploading={isUploading} />
+        {uploadedFiles.length === 0 ? (
+          /* No files yet: centered upload zone */
+          <div className="flex-1 flex flex-col items-center justify-center px-4 md:px-8 py-12">
+            <div className="w-full max-w-2xl">
+              {/* Header */}
+              <div className="text-center mb-8">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-100 dark:bg-amber-500/10 mb-4">
+                  <span className="material-icons-round text-amber-500" style={{ fontSize: '32px' }}>folder_open</span>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Upload Tài Liệu</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Tải lên tài liệu để bắt đầu đặt câu hỏi với AI
+                </p>
+              </div>
 
-            {/* Uploaded files tags */}
-            {uploadedFiles.length > 0 && (
-              <div className="mt-3 mb-4 flex flex-wrap gap-2">
+              <FileUpload onUpload={handleUpload} isUploading={isUploading} />
+
+              {/* Format hints */}
+              <div className="mt-6 flex items-center justify-center gap-6 text-xs text-gray-400 dark:text-gray-500">
+                <span className="flex items-center gap-1.5">
+                  <span className="material-icons-round" style={{ fontSize: '14px' }}>picture_as_pdf</span>PDF
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="material-icons-round" style={{ fontSize: '14px' }}>description</span>Word
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="material-icons-round" style={{ fontSize: '14px' }}>image</span>PNG / JPG
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Compact file bar */}
+            <div className="flex-shrink-0 px-4 md:px-8 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-slate-800/50">
+              <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-2">
+                <span className="material-icons-round text-amber-500" style={{ fontSize: '18px' }}>folder_open</span>
                 {uploadedFiles.map((file, idx) => (
                   <span
                     key={idx}
@@ -163,21 +188,22 @@ function App() {
                     {file}
                   </span>
                 ))}
+                <FileUpload onUpload={handleUpload} isUploading={isUploading} compact />
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Chat Section */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-shrink-0 px-4 md:px-8 pt-4 bg-white dark:bg-slate-800/30">
-            <div className="max-w-5xl mx-auto flex items-center gap-2 text-gray-700 dark:text-gray-300 pb-3 border-b border-gray-200 dark:border-gray-700/50">
-              <span className="material-icons-round" style={{ fontSize: '20px' }}>chat_bubble_outline</span>
-              <h2 className="font-semibold text-lg">Chat với AI</h2>
             </div>
-          </div>
-          <ChatInterface onSendMessage={handleChat} isLoading={isChatLoading} />
-        </div>
+
+            {/* Chat Section */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-shrink-0 px-4 md:px-8 pt-4 bg-white dark:bg-slate-800/30">
+                <div className="max-w-5xl mx-auto flex items-center gap-2 text-gray-700 dark:text-gray-300 pb-3 border-b border-gray-200 dark:border-gray-700/50">
+                  <span className="material-icons-round" style={{ fontSize: '20px' }}>chat_bubble_outline</span>
+                  <h2 className="font-semibold text-lg">Chat với AI</h2>
+                </div>
+              </div>
+              <ChatInterface onSendMessage={handleChat} isLoading={isChatLoading} />
+            </div>
+          </>
+        )}
       </main>
     </div>
   );
