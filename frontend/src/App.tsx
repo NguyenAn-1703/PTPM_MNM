@@ -12,6 +12,7 @@ function App() {
   const [documentCount, setDocumentCount] = useState(0);
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const historyLimit = status?.history_max_messages || 7;
 
   // Sync dark mode class on <html>
   useEffect(() => {
@@ -68,10 +69,10 @@ function App() {
   };
 
   const handleChat = useCallback(
-    async (message: string): Promise<{ answer: string; contexts: Context[] }> => {
+    async (message: string, history: { role: 'user' | 'assistant'; content: string }[]): Promise<{ answer: string; contexts: Context[] }> => {
       setIsChatLoading(true);
       try {
-        const res = await api.chat(message);
+        const res = await api.chat(message, history);
         if (res.success) {
           return { answer: res.answer, contexts: res.contexts };
         }
@@ -203,7 +204,7 @@ function App() {
                   <h2 className="font-semibold text-lg">Chat với AI</h2>
                 </div>
               </div>
-              <ChatInterface onSendMessage={handleChat} isLoading={isChatLoading} />
+              <ChatInterface onSendMessage={handleChat} isLoading={isChatLoading} historyLimit={historyLimit} />
             </div>
           </>
         )}

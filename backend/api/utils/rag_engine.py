@@ -52,6 +52,66 @@ class RAGEngine:
         # Vector store
         self.vector_store: Optional[FAISS] = None
         self._load_vector_store()
+
+        # Prompt configuration
+        self.system_prompt = (
+            "Bạn là trợ lý AI trả lời dựa trên ngữ cảnh được cung cấp. "
+            "Nếu không có đủ thông tin trong ngữ cảnh, hãy nói rõ rằng bạn không tìm thấy thông tin liên quan."
+        )
+        self.history_max_messages = 7
+        self.history_max_chars = 2000
+
+    def _format_history(self, history: List[Dict[str, str]]) -> str:
+        """Format and truncate recent chat history."""
+        if not history:
+            return "Không có lịch sử hội thoại."
+
+        filtered = []
+        for item in history:
+            role = str(item.get("role", "")).strip().lower()
+            content = str(item.get("content", "")).strip()
+            if role in {"user", "assistant"} and content:
+                filtered.append({"role": role, "content": content})
+
+        if not filtered:
+            return "Không có lịch sử hội thoại."
+
+        recent = filtered[-self.history_max_messages :]
+
+        lines = []
+        for msg in recent:
+            prefix = "User" if msg["role"] == "user" else "Assistant"
+            lines.append(f"{prefix}: {msg['content']}")
+
+        history_text = "\n".join(lines)
+        if len(history_text) > self.history_max_chars:
+            history_text = history_text[-self.history_max_chars :]
+            history_text = "..." + history_text
+
+        return history_text
+
+    def _condense_question(self, history: List[Dict[str, str]], question: str) -> str:
+        """Rewrite the question into a standalone query using recent history."""
+        if not history:
+            return question
+
+        history_text = self._format_history(history)
+
+        condense_prompt = (
+            "Dua vao lich su hoi thoai va cau hoi moi nhat, "
+            "hay viet lai cau hoi moi thanh mot cau hoi doc lap, day du y nghia. "
+            "Chi tra ve cau hoi doc lap, khong giai thich.\n\n"
+            f"LICH SU HOI THOAI:\n{history_text}\n\n"
+            f"CAU HOI HIEN TAI: {question}\n\n"
+            "CAU HOI DOC LAP:"
+        )
+
+        try:
+            condensed = self.llm.invoke(condense_prompt)
+            condensed = str(condensed).strip().strip('"')
+            return condensed or question
+        except Exception:
+            return question
     
     def _load_vector_store(self):
         """Load vector store từ disk nếu tồn tại"""
@@ -149,7 +209,7 @@ class RAGEngine:
         
         return search_results
     
-    def chat(self, question: str, top_k: int = 3) -> Dict[str, Any]:
+    def chat(self, question: str, history: Optional[List[Dict[str, str]]] = None, top_k: int = 3) -> Dict[str, Any]:
         """
         Chat với RAG - trả lời câu hỏi dựa trên tài liệu đã upload
         
@@ -166,9 +226,12 @@ class RAGEngine:
                 "contexts": [],
                 "has_context": False
             }
+
+        history = history or []
+        standalone_question = self._condense_question(history, question)
         
         # Retrieve relevant contexts
-        contexts = self.search(question, top_k=top_k)
+        contexts = self.search(standalone_question, top_k=top_k)
         
         if not contexts:
             return {
@@ -181,15 +244,15 @@ class RAGEngine:
         context_text = "\n\n---\n\n".join([ctx["content"] for ctx in contexts])
         
         # Create prompt
-        prompt = f"""Bạn là một trợ lý AI thông minh. Hãy trả lời câu hỏi dựa trên ngữ cảnh được cung cấp.
-Nếu không tìm thấy thông tin trong ngữ cảnh, hãy nói rõ rằng bạn không tìm thấy thông tin liên quan.
+        history_text = self._format_history(history)
 
-NGỮCẢNH:
-{context_text}
-
-CÂU HỎI: {question}
-
-TRẢ LỜI:"""
+        prompt = (
+            f"SYSTEM PROMPT:\n{self.system_prompt}\n\n"
+            f"CHAT HISTORY (3-5 cau gan nhat):\n{history_text}\n\n"
+            f"RAG CONTEXT (chunks lien quan):\n{context_text}\n\n"
+            f"CAU HOI HIEN TAI:\n{question}\n\n"
+            "TRA LOI:"
+        )
         
         # Generate answer
         try:
@@ -221,6 +284,7 @@ TRẢ LỜI:"""
             "embedding_model": self.embedding_model,
             "vector_db": "FAISS",
             "ollama_url": self.ollama_base_url,
+            "history_max_messages": self.history_max_messages,
             "has_documents": self.vector_store is not None,
             "document_count": 0,
             "uploaded_files": []

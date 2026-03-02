@@ -21,6 +21,11 @@ export interface Context {
   score: number;
 }
 
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface ChatResponse {
   success: boolean;
   question: string;
@@ -37,6 +42,7 @@ export interface StatusResponse {
   embedding_model: string;
   vector_db: string;
   ollama_url: string;
+  history_max_messages?: number;
   has_documents: boolean;
   document_count: number;
   uploaded_files?: string[];
@@ -56,13 +62,13 @@ export const api = {
     return response.json();
   },
 
-  async chat(question: string): Promise<ChatResponse> {
+  async chat(question: string, history: ChatHistoryMessage[] = []): Promise<ChatResponse> {
     const response = await fetch(`${API_BASE_URL}/chat/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, history }),
     });
 
     return response.json();

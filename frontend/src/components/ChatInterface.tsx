@@ -9,13 +9,20 @@ interface Message {
   timestamp: Date;
 }
 
-interface ChatInterfaceProps {
-  onSendMessage: (message: string) => Promise<{ answer: string; contexts: Context[] }>;
-  isLoading: boolean;
+interface ChatHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
-export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, isLoading }) => {
+interface ChatInterfaceProps {
+  onSendMessage: (message: string, history: ChatHistoryMessage[]) => Promise<{ answer: string; contexts: Context[] }>;
+  isLoading: boolean;
+  historyLimit: number;
+}
+
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, isLoading, historyLimit }) => {
   const [messages, setMessages] = useState<Message[]>([]);
+  const historyCount = messages.filter((msg) => msg.role === 'user' || msg.role === 'assistant').length;
   const [input, setInput] = useState('');
   const [expandedContext, setExpandedContext] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -47,7 +54,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, isL
     }
 
     try {
-      const response = await onSendMessage(userMessage.content);
+      const history: ChatHistoryMessage[] = messages
+        .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+        .map((msg) => ({ role: msg.role, content: msg.content }))
+        .slice(-historyLimit);
+
+      const response = await onSendMessage(userMessage.content, history);
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -110,6 +122,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, isL
       <footer className="flex-shrink-0 p-4 md:p-6 bg-white dark:bg-slate-800 border-t border-gray-200 dark:border-gray-700 z-30">
         <div className="max-w-4xl mx-auto">
           <form onSubmit={handleSubmit}>
+            <div className="flex items-center justify-between text-[11px] text-gray-400 dark:text-gray-500 mb-2 px-1">
+              <span>
+                Số lượng tin nhắn có thể nhớ : {Math.min(historyCount, historyLimit)}/{historyLimit}
+              </span>
+            </div>
             <div className="relative flex items-end gap-2 bg-gray-100 dark:bg-slate-900 rounded-2xl p-2 border border-transparent focus-within:border-indigo-500/50 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all duration-300">
               <textarea
                 ref={textareaRef}
