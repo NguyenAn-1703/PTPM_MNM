@@ -222,12 +222,24 @@ TRẢ LỜI:"""
             "vector_db": "FAISS",
             "ollama_url": self.ollama_base_url,
             "has_documents": self.vector_store is not None,
-            "document_count": 0
+            "document_count": 0,
+            "uploaded_files": []
         }
         
         if self.vector_store:
             try:
                 stats["document_count"] = self.vector_store.index.ntotal
+            except:
+                pass
+
+            try:
+                # Deduplicate filenames stored in chunk metadata
+                filenames = set()
+                for doc in self.vector_store.docstore._dict.values():
+                    filename = doc.metadata.get("filename")
+                    if filename:
+                        filenames.add(filename)
+                stats["uploaded_files"] = sorted(filenames)
             except:
                 pass
         

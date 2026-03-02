@@ -110,7 +110,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, isL
       <footer className="flex-shrink-0 p-4 md:p-6 bg-white dark:bg-slate-800 border-t border-gray-200 dark:border-gray-700 z-30">
         <div className="max-w-4xl mx-auto">
           <form onSubmit={handleSubmit}>
-            <div className="relative flex items-end gap-2 bg-gray-100 dark:bg-slate-800/80 rounded-2xl p-2 border border-transparent focus-within:border-indigo-500/50 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all duration-300">
+            <div className="relative flex items-end gap-2 bg-gray-100 dark:bg-slate-900 rounded-2xl p-2 border border-transparent focus-within:border-indigo-500/50 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all duration-300">
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -123,13 +123,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, isL
                 style={{ minHeight: '48px', maxHeight: '128px' }}
               />
               <div className="flex items-center gap-2 pb-1 pr-1 flex-shrink-0">
-                <button
+                {/* <button
                   type="button"
                   className="p-2 text-gray-400 hover:text-indigo-500 dark:text-gray-500 dark:hover:text-indigo-400 transition-colors rounded-full hover:bg-gray-200 dark:hover:bg-slate-700"
                   title="Đính kèm file"
                 >
                   <span className="material-icons-round" style={{ fontSize: '20px' }}>attach_file</span>
-                </button>
+                </button> */}
                 <button
                   type="submit"
                   disabled={!input.trim() || isLoading}
@@ -192,7 +192,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, expandedContext,
           <div className={`mt-3 ${isUser ? 'mr-11' : 'ml-11'}`}>
             <button
               onClick={() => onToggleContext(expandedContext === message.id ? null : message.id)}
-              className="text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 flex items-center gap-1"
+              className="text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
             >
               <span className={`material-icons-round transition-transform ${expandedContext === message.id ? 'rotate-90' : ''}`} style={{ fontSize: '14px' }}>chevron_right</span>
               Xem ngữ cảnh ({message.contexts.length})

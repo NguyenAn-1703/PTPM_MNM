@@ -33,6 +33,9 @@ function App() {
       const res = await api.getStatus();
       setStatus(res);
       setDocumentCount(res.document_count || 0);
+      if (res.uploaded_files) {
+        setUploadedFiles(res.uploaded_files);
+      }
     } catch (error) {
       console.error('Error fetching status:', error);
     } finally {
@@ -115,7 +118,7 @@ function App() {
         <div className="absolute top-4 right-4 z-50">
           <button
             onClick={() => setDarkMode(!darkMode)}
-            className="p-2 rounded-full bg-white dark:bg-slate-700 text-gray-600 dark:text-gray-200 shadow-lg hover:scale-105 transition-transform"
+            className=" dark:text-gray-200 hover:scale-105 transition-transform cursor-pointer"
             title="Chuyển đổi giao diện"
           >
             <span className="material-icons-round" style={{ fontSize: '20px' }}>
@@ -142,7 +145,7 @@ function App() {
           </div>
         )}
 
-        {uploadedFiles.length === 0 ? (
+        {documentCount === 0 ? (
           /* No files yet: centered upload zone */
           <div className="flex-1 flex flex-col items-center justify-center px-4 md:px-8 py-12">
             <div className="w-full max-w-2xl">
@@ -194,8 +197,8 @@ function App() {
 
             {/* Chat Section */}
             <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="flex-shrink-0 px-4 md:px-8 pt-4 bg-white dark:bg-slate-800/30">
-                <div className="max-w-5xl mx-auto flex items-center gap-2 text-gray-700 dark:text-gray-300 pb-3 border-b border-gray-200 dark:border-gray-700/50">
+              <div className="flex-shrink-0 px-4 md:px-8 pt-4 bg-white dark:bg-slate-800/30 border-b border-gray-200 dark:border-gray-700/50">
+                <div className="max-w-5xl mx-auto flex items-center gap-2 text-gray-700 dark:text-gray-300 pb-3">
                   <span className="material-icons-round" style={{ fontSize: '20px' }}>chat_bubble_outline</span>
                   <h2 className="font-semibold text-lg">Chat với AI</h2>
                 </div>

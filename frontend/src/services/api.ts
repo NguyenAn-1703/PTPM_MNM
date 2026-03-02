@@ -39,6 +39,7 @@ export interface StatusResponse {
   ollama_url: string;
   has_documents: boolean;
   document_count: number;
+  uploaded_files?: string[];
   error?: string;
 }
 
