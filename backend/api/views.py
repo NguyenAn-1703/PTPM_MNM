@@ -101,6 +101,7 @@ class ChatView(APIView):
     
     def post(self, request):
         question = request.data.get('question', '').strip()
+        history = request.data.get('history', [])
         
         if not question:
             return Response(
@@ -110,7 +111,7 @@ class ChatView(APIView):
         
         try:
             rag_engine = get_rag_engine()
-            result = rag_engine.chat(question)
+            result = rag_engine.chat(question, history=history)
             
             return Response({
                 "success": True,
