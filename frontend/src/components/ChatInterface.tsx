@@ -152,8 +152,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, isL
 
 const WelcomeMessage: React.FC = () => (
   <div className="flex flex-col items-center justify-center h-full text-center animate-fade-in-up py-16">
-    <div className="w-20 h-20 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-3xl flex items-center justify-center shadow-2xl mb-6 animate-pulse">
-      <span className="material-icons-round text-white" style={{ fontSize: '40px' }}>forum</span>
+    <div className="w-20 h-20 border border-gray-400 dark:border-gray-600 rounded-3xl flex items-center justify-center mb-6">
+      <span className="material-icons-round text-black dark:text-white" style={{ fontSize: '40px' }}>forum</span>
     </div>
     <h2 className="text-3xl font-bold mb-3 bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
       Chào mừng đến RAG Assistant!

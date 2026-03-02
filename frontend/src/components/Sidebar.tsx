@@ -51,21 +51,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
             iconBg="bg-pink-100 dark:bg-pink-900/30"
             iconColor="text-pink-600 dark:text-pink-400"
             label="LLM Model"
-            value={status?.llm_model || 'qwen2.5:7b'}
+            value={status?.llm_model || 'unknown'}
           />
           <InfoCard
             iconName="hub"
             iconBg="bg-orange-100 dark:bg-orange-900/30"
             iconColor="text-orange-600 dark:text-orange-400"
             label="Embedding"
-            value={status?.embedding_model || 'nomic-embed-text'}
+            value={status?.embedding_model || 'unknown'}
           />
           <InfoCard
             iconName="storage"
             iconBg="bg-blue-100 dark:bg-blue-900/30"
             iconColor="text-blue-600 dark:text-blue-400"
             label="Vector DB"
-            value={status?.vector_db || 'FAISS'}
+            value={status?.vector_db || 'unknown'}
           />
           <InfoCard
             iconName="description"
@@ -82,7 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           onClick={onClear}
           disabled={documentCount === 0}
-          className="w-full mb-3 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full mb-3 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
         >
           <span className="material-icons-round" style={{ fontSize: '18px' }}>delete_outline</span>
           Xóa dữ liệu
