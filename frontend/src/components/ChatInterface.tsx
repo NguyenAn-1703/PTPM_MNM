@@ -124,7 +124,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, isL
           <form onSubmit={handleSubmit}>
             <div className="flex items-center justify-between text-[11px] text-gray-400 dark:text-gray-500 mb-2 px-1">
               <span>
-                Số lượng tin nhắn có thể nhớ : {Math.min(historyCount, historyLimit)}/{historyLimit}
+                Số lượng tin nhắn có thể nhớ chính xác : {Math.min(historyCount, historyLimit)}/{historyLimit}
               </span>
             </div>
             <div className="relative flex items-end gap-2 bg-gray-100 dark:bg-slate-900 rounded-2xl p-2 border border-transparent focus-within:border-indigo-500/50 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all duration-300">
