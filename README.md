@@ -1,17 +1,5 @@
 # RAG Assistant — AI-Powered Document Q&A System
 
-## Features
-
-- **Multi-format Document Upload** — PDF, DOCX/DOC, and images (PNG, JPG, BMP, TIFF) with OCR support
-- **AI-Powered Q&A** — Ask natural language questions and get answers grounded in your uploaded documents
-- **RAG Pipeline** — Vector similarity search retrieves the most relevant document chunks before generating a response
-- **Conversational Chat History** — Maintains context across multi-turn dialogue
-- **System Status Dashboard** — Real-time monitoring of LLM, embedding model, and vector database health
-- **Dark Mode UI** — Full dark/light theme support
-- **Fully Local** — Runs entirely on your machine via Ollama — no API keys required, no data sent to the cloud
-
----
-
 ## Tech Stack
 
 | Layer | Technology |
@@ -173,12 +161,7 @@ Open `http://localhost:5173` in your browser.
 | `GET` | `/api/status/` | Get system health and model info |
 | `DELETE` | `/api/clear/` | Remove all stored documents and embeddings |
 
-### Upload a document
 
-```bash
-curl -X POST http://localhost:8000/api/upload/ \
-  -F "file=@report.pdf"
-```
 
 
 ---
