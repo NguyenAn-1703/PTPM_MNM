@@ -1,98 +1,5 @@
 # RAG Assistant — AI-Powered Document Q&A System
 
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS |
-| **Backend** | Django, Django REST Framework |
-| **AI Orchestration** | LangChain |
-| **LLM Runtime** | Ollama (Qwen2.5:7B / DeepSeek-R1:7B) |
-| **Vector Database** | FAISS (Facebook AI Similarity Search) |
-| **Embeddings** | nomic-embed-text (via Ollama) |
-| **Document Processing** | PyPDF, python-docx, pytesseract (OCR), Pillow |
-
----
-
-## How It Works
-
-```
-Document Upload
-      │
-      ▼
-┌──────────────────────┐
-│  Document Processor   │  Extracts text from PDF / DOCX / Image (OCR)
-└──────────────────────┘
-      │
-      ▼
-┌──────────────────────┐
-│  Text Splitter        │  Splits into chunks (1000 chars, 150 overlap)
-└──────────────────────┘
-      │
-      ▼
-┌──────────────────────┐
-│  Embedding Model      │  Converts chunks into vector representations
-│  (nomic-embed-text)   │
-└──────────────────────┘
-      │
-      ▼
-┌──────────────────────┐
-│  FAISS Vector Store   │  Stores and indexes all embeddings on disk
-└──────────────────────┘
-
-
-User Question
-      │
-      ▼
-┌──────────────────────┐
-│  Question Condenser   │  LLM rephrases question using chat history
-└──────────────────────┘
-      │
-      ▼
-┌──────────────────────┐
-│  Similarity Search    │  Retrieves top-3 most relevant chunks
-└──────────────────────┘
-      │
-      ▼
-┌──────────────────────┐
-│  LLM (Qwen2.5:7B)    │  Generates answer grounded in retrieved context
-└──────────────────────┘
-      │
-      ▼
-    Answer + Source References
-```
-
----
-
-## Project Structure
-
-```
-PTPM_MNM/
-├── backend/
-│   ├── api/
-│   │   ├── utils/
-│   │   │   ├── rag_engine.py          # Core RAG pipeline (LangChain + FAISS)
-│   │   │   └── document_processor.py  # Multi-format text extraction + OCR
-│   │   ├── views.py                   # REST API endpoints
-│   │   └── urls.py
-│   ├── rag_project/
-│   │   └── settings.py
-│   ├── requirements.txt
-│   └── .env.example
-│
-└── frontend/
-    └── src/
-        ├── components/
-        │   ├── ChatInterface.tsx       # Chat UI with message history
-        │   ├── FileUpload.tsx          # Drag-and-drop file upload
-        │   └── Sidebar.tsx             # System status panel
-        ├── services/
-        │   └── api.ts                  # Typed REST API client
-        └── App.tsx
-```
-
----
-
 ## Getting Started
 
 ### Prerequisites
@@ -201,6 +108,70 @@ EMBEDDING_MODEL=nomic-embed-text
 | `.docx` / `.doc` | Parsed with python-docx |
 | `.png`, `.jpg`, `.jpeg` | OCR via pytesseract |
 | `.bmp`, `.tiff` | OCR via pytesseract |
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS |
+| **Backend** | Django, Django REST Framework |
+| **AI Orchestration** | LangChain |
+| **LLM Runtime** | Ollama (Qwen2.5:7B / DeepSeek-R1:7B) |
+| **Vector Database** | FAISS (Facebook AI Similarity Search) |
+| **Embeddings** | nomic-embed-text (via Ollama) |
+| **Document Processing** | PyPDF, python-docx, pytesseract (OCR), Pillow |
+
+---
+
+## How It Works
+
+```
+Document Upload
+      │
+      ▼
+┌──────────────────────┐
+│  Document Processor   │  Extracts text from PDF / DOCX / Image (OCR)
+└──────────────────────┘
+      │
+      ▼
+┌──────────────────────┐
+│  Text Splitter        │  Splits into chunks (1000 chars, 150 overlap)
+└──────────────────────┘
+      │
+      ▼
+┌──────────────────────┐
+│  Embedding Model      │  Converts chunks into vector representations
+│  (nomic-embed-text)   │
+└──────────────────────┘
+      │
+      ▼
+┌──────────────────────┐
+│  FAISS Vector Store   │  Stores and indexes all embeddings on disk
+└──────────────────────┘
+
+
+User Question
+      │
+      ▼
+┌──────────────────────┐
+│  Question Condenser   │  LLM rephrases question using chat history
+└──────────────────────┘
+      │
+      ▼
+┌──────────────────────┐
+│  Similarity Search    │  Retrieves top-3 most relevant chunks
+└──────────────────────┘
+      │
+      ▼
+┌──────────────────────┐
+│  LLM (Qwen2.5:7B)    │  Generates answer grounded in retrieved context
+└──────────────────────┘
+      │
+      ▼
+    Answer + Source References
+```
 
 ---
 
