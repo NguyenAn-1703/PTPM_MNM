@@ -101,9 +101,9 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # RAG Configuration
-OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
-OLLAMA_LLM = os.getenv('OLLAMA_LLM', 'deepseek-r1:7b')
-EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'nomic-embed-text')
+OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL')
+OLLAMA_LLM = os.getenv('OLLAMA_LLM')
+EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL')
 
 # Vector DB path
 VECTOR_DB_PATH = BASE_DIR / 'vector_store'

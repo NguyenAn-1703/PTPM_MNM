@@ -8,6 +8,12 @@ from pypdf import PdfReader
 from docx import Document
 from PIL import Image
 import pytesseract
+from pytesseract import TesseractError, TesseractNotFoundError
+
+
+tesseract_cmd = os.getenv("TESSERACT_CMD", "").strip()
+if tesseract_cmd:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
 
 def extract_text_from_pdf(file_path: str) -> str:
@@ -59,13 +65,39 @@ def extract_text_from_image(file_path: str, lang: str = 'vie+eng') -> str:
         lang: Ngôn ngữ OCR (mặc định: vie+eng cho tiếng Việt + Anh)
     """
     try:
+        available_langs = set(pytesseract.get_languages(config=''))
+        requested_langs = [code for code in lang.split('+') if code]
+
+        valid_langs = [code for code in requested_langs if code in available_langs]
+        if not valid_langs:
+            if 'eng' in available_langs:
+                valid_langs = ['eng']
+            elif available_langs:
+                valid_langs = [sorted(available_langs)[0]]
+            else:
+                raise Exception(
+                    "Không tìm thấy language data cho Tesseract. "
+                    "Hãy cài gói ngôn ngữ (ví dụ: tesseract-ocr-vie, tesseract-ocr-eng)."
+                )
+
         image = Image.open(file_path)
         # Convert to RGB if necessary
         if image.mode != 'RGB':
             image = image.convert('RGB')
-        
-        text = pytesseract.image_to_string(image, lang=lang)
+
+        text = pytesseract.image_to_string(
+            image,
+            lang='+'.join(valid_langs),
+            config='--oem 3 --psm 6'
+        )
         return text.strip()
+    except TesseractNotFoundError:
+        raise Exception(
+            "Chưa cài Tesseract OCR trên máy chủ hoặc chưa thêm vào PATH. "
+            "Vui lòng cài `tesseract-ocr` và các gói ngôn ngữ cần thiết."
+        )
+    except TesseractError as e:
+        raise Exception(f"Lỗi Tesseract OCR: {str(e)}")
     except Exception as e:
         raise Exception(f"Lỗi khi OCR ảnh: {str(e)}")
 

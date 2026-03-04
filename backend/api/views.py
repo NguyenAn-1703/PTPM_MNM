@@ -21,6 +21,7 @@ class UploadDocumentView(APIView):
     parser_classes = [MultiPartParser, FormParser]
     
     ALLOWED_EXTENSIONS = ['pdf', 'docx', 'doc', 'png', 'jpg', 'jpeg', 'bmp', 'tiff']
+    IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'bmp', 'tiff']
     
     def post(self, request):
         if 'file' not in request.FILES:
@@ -51,8 +52,14 @@ class UploadDocumentView(APIView):
             text = process_document(tmp_path, file_ext)
             
             if not text.strip():
+                error_message = "Không thể trích xuất text từ tài liệu. File có thể rỗng hoặc không có nội dung chữ."
+                if file_ext in self.IMAGE_EXTENSIONS:
+                    error_message = (
+                        "OCR không trích xuất được text từ ảnh. "
+                        "Kiểm tra ảnh có chữ rõ ràng và đảm bảo Tesseract + gói ngôn ngữ đã được cài đặt đúng."
+                    )
                 return Response(
-                    {"error": "Không thể trích xuất text từ tài liệu. File có thể rỗng hoặc chỉ chứa hình ảnh."},
+                    {"error": error_message},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
