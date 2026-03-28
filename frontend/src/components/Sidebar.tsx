@@ -1,118 +1,181 @@
 import React from 'react';
 import type { StatusResponse } from '../services/api';
+import type { Message } from './ChatInterface';
+
+interface ChatSession {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: Message[];
+}
 
 interface SidebarProps {
   status: StatusResponse | null;
   isLoading: boolean;
   documentCount: number;
-  onClear: () => void;
+  messages: Message[];
+  chatSessions: ChatSession[];
+  activeSessionId: string;
+  onClearVectorStore: () => void;
+  onClearHistory: () => void;
+  onNewChat: () => void;
+  onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+  isMobileOpen: boolean;
+  onCloseMobile: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   status,
   isLoading,
   documentCount,
-  onClear,
+  messages,
+  chatSessions,
+  activeSessionId,
+  onClearVectorStore,
+  onClearHistory,
+  onNewChat,
+  onSelectSession,
+  onDeleteSession,
+  isMobileOpen,
+  onCloseMobile,
 }) => {
   const isActive = !isLoading && status?.success;
+  const orderedSessions = [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt);
+
+  const getSessionTitle = (session: ChatSession) => {
+    const firstUserMessage = session.messages.find((item) => item.role === 'user');
+    if (firstUserMessage) {
+      return firstUserMessage.content;
+    }
+    return 'Đoạn chat mới';
+  };
 
   return (
-    <aside className="w-80 flex-shrink-0 flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-slate-800 transition-colors duration-300 relative z-20">
-      {/* Logo & Title */}
-      <div className="p-6 flex items-center gap-3 border-b border-gray-100 dark:border-gray-700/50">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
-          <span className="material-icons-round text-white" style={{ fontSize: '20px' }}>smart_toy</span>
+    <aside
+      className={
+        `fixed inset-y-0 left-0 z-40 flex w-[290px] flex-col border-r border-slate-200/60 bg-white/92 shadow-2xl shadow-slate-900/10 backdrop-blur-xl transition-transform duration-300 dark:border-slate-700/70 dark:bg-slate-950/88 lg:static lg:z-20 lg:w-[300px] lg:translate-x-0 ${
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full'
+        }`
+      }
+    >
+      <div className="flex items-center justify-between border-b border-slate-200/70 px-5 py-5 dark:border-slate-700/70">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 to-emerald-500 shadow-lg shadow-sky-500/25">
+            <span className="material-icons-round text-white" style={{ fontSize: '20px' }}>auto_awesome</span>
+          </div>
+          <div>
+            <h1 className="text-[17px] font-bold text-slate-900 dark:text-slate-100">Fusion Assistant</h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">RAG Workspace</p>
+          </div>
         </div>
-        <div>
-          <h1 className="font-bold text-lg text-gray-900 dark:text-white leading-tight">RAG Assistant</h1>
-          <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">AI Document Q&A</p>
-        </div>
-      </div>
-
-      {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {/* Status Indicator */}
-        <div className="flex items-center gap-2 px-2">
-          <span className="relative flex h-3 w-3">
-            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isActive ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
-            <span className={`relative inline-flex rounded-full h-3 w-3 ${isActive ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
-          </span>
-          <span className={`text-sm font-medium ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-            {isLoading ? 'Đang kết nối...' : isActive ? 'Đang hoạt động' : 'Lỗi kết nối'}
-          </span>
-        </div>
-
-        {/* System Info */}
-        <div className="space-y-3">
-          <h3 className="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Thông số hệ thống</h3>
-
-          <InfoCard
-            iconName="psychology"
-            iconBg="bg-pink-100 dark:bg-pink-900/30"
-            iconColor="text-pink-600 dark:text-pink-400"
-            label="LLM Model"
-            value={status?.llm_model || 'unknown'}
-          />
-          <InfoCard
-            iconName="hub"
-            iconBg="bg-orange-100 dark:bg-orange-900/30"
-            iconColor="text-orange-600 dark:text-orange-400"
-            label="Embedding"
-            value={status?.embedding_model || 'unknown'}
-          />
-          <InfoCard
-            iconName="storage"
-            iconBg="bg-blue-100 dark:bg-blue-900/30"
-            iconColor="text-blue-600 dark:text-blue-400"
-            label="Vector DB"
-            value={status?.vector_db || 'unknown'}
-          />
-          <InfoCard
-            iconName="description"
-            iconBg="bg-emerald-100 dark:bg-emerald-900/30"
-            iconColor="text-emerald-600 dark:text-emerald-400"
-            label="Documents"
-            value={`${documentCount} chunks`}
-          />
-        </div>
-      </div>
-
-      {/* Bottom Actions */}
-      <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-slate-900/50">
         <button
-          onClick={onClear}
-          disabled={documentCount === 0}
-          className="w-full mb-3 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          onClick={onCloseMobile}
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100 lg:hidden"
+          title="Đóng menu"
         >
-          <span className="material-icons-round" style={{ fontSize: '18px' }}>delete_outline</span>
-          Xóa dữ liệu
+          <span className="material-icons-round" style={{ fontSize: '18px' }}>close</span>
         </button>
-        <p className="text-[10px] text-center text-gray-400 dark:text-gray-500">
-          Powered by Ollama + LangChain
-        </p>
+      </div>
+
+      <div className="p-4">
+        <button
+          onClick={onNewChat}
+          className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-slate-700 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
+        >
+          <span className="material-icons-round" style={{ fontSize: '18px' }}>add</span>
+          Đoạn chat mới
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 pb-4">
+        <div className="mb-5 rounded-2xl border border-slate-200/70 bg-slate-50/90 p-3 dark:border-slate-700/70 dark:bg-slate-900/60">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">System</span>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold ${isActive ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+              {isLoading ? 'Checking' : isActive ? 'Online' : 'Offline'}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+            <div className="rounded-none border border-slate-200/70 bg-white px-2 py-2 dark:border-slate-700/70 dark:bg-slate-950/70">
+              <p className="mb-1 text-[10px] uppercase text-slate-400">Docs : {<span className="font-bold">{documentCount}</span>}</p>
+              </div>
+            <div className="rounded-none border border-slate-200/70 bg-white px-2 py-2 dark:border-slate-700/70 dark:bg-slate-950/70">
+              <p className="mb-1 text-[10px] uppercase  text-slate-400">History : { <span className="font-boild">{orderedSessions.length}</span>}</p>
+            </div>
+            <div className="col-span-2 rounded-none border border-slate-200/70 bg-white px-2 py-2 dark:border-slate-700/70 dark:bg-slate-950/70">
+              <p className="mb-1 text-[10px] uppercase tracking-[0.08em] text-slate-400">Model</p>
+              <p className="truncate font-semibold">{status?.llm_model || 'N/A'}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-2 flex items-center justify-between px-1">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">Các đoạn chat</h3>
+        </div>
+        <div className="mb-4 space-y-1">
+          {orderedSessions.map((session, idx) => {
+            const isCurrent = session.id === activeSessionId;
+            return (
+              <div
+                key={session.id}
+                onClick={() => onSelectSession(session.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectSession(session.id);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                className={`group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition ${
+                  isCurrent
+                    ? 'bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200'
+                    : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                }`}
+                title={getSessionTitle(session)}
+              >
+                <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold ${isCurrent ? 'bg-sky-200 text-sky-700 dark:bg-sky-500/30 dark:text-sky-100' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200'}`}>
+                  {idx + 1}
+                </span>
+                <span className="truncate">{getSessionTitle(session)}</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteSession(session.id);
+                  }}
+                  className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 opacity-0 transition hover:bg-rose-100 hover:text-rose-600 group-hover:opacity-100 dark:hover:bg-rose-500/20 dark:hover:text-rose-300"
+                  title="Xóa đoạn chat"
+                >
+                  <span className="material-icons-round" style={{ fontSize: '16px' }}>delete</span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+      </div>
+
+      <div className="space-y-2 border-t border-slate-200/70 p-4 dark:border-slate-700/70">
+        <button
+          onClick={onClearHistory}
+          disabled={messages.length === 0}
+          className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          <span className="material-icons-round text-slate-400" style={{ fontSize: '16px' }}>history_toggle_off</span>
+          Xóa toàn bộ lịch sử chat
+        </button>
+        <button
+          onClick={onClearVectorStore}
+          disabled={documentCount === 0}
+          className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-45 dark:text-rose-400 dark:hover:bg-rose-500/10"
+        >
+          <span className="material-icons-round" style={{ fontSize: '16px' }}>delete_forever</span>
+          Xóa toàn bộ kho tài liệu
+        </button>
       </div>
     </aside>
   );
 };
-
-interface InfoCardProps {
-  iconName: string;
-  iconBg: string;
-  iconColor: string;
-  label: string;
-  value: string;
-}
-
-const InfoCard: React.FC<InfoCardProps> = ({ iconName, iconBg, iconColor, label, value }) => (
-  <div className="group p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-all duration-200 hover:shadow-md hover:border-indigo-300 dark:hover:border-indigo-500/30">
-    <div className="flex items-start gap-3">
-      <div className={`p-2 rounded-lg ${iconBg} ${iconColor}`}>
-        <span className="material-icons-round" style={{ fontSize: '18px' }}>{iconName}</span>
-      </div>
-      <div>
-        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">{label}</p>
-        <p className="text-sm font-bold text-gray-800 dark:text-gray-100 truncate">{value}</p>
-      </div>
-    </div>
-  </div>
-);

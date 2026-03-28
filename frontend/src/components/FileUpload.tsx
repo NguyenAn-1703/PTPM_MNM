@@ -52,9 +52,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, c
   // Compact mode: small button only
   if (compact) {
     return (
-      <label className={`relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full cursor-pointer transition-all duration-200
-        bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400
-        hover:bg-indigo-100 dark:hover:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30
+      <label className={`relative inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-200
+        border-sky-300/70 bg-white text-sky-700 shadow-sm hover:-translate-y-0.5 hover:bg-sky-50
+        dark:border-sky-500/40 dark:bg-slate-900 dark:text-sky-300 dark:hover:bg-slate-800
         ${isUploading ? 'opacity-60 pointer-events-none' : ''}
       `}>
         <input
@@ -66,28 +66,29 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, c
           title="Upload thêm file"
         />
         {isUploading ? (
-          <div className="w-3.5 h-3.5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-sky-500 border-t-transparent" />
         ) : (
           <span className="material-icons-round" style={{ fontSize: '14px' }}>add</span>
         )}
-        <span className="text-xs font-medium">Thêm tài liệu</span>
+        <span>Thêm tài liệu</span>
       </label>
     );
   }
 
   // Full upload zone
   return (
-    <div className="relative group">
+    <div className="group relative">
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={`
-          relative w-full h-56 rounded-2xl border-2 border-dashed transition-all duration-300
+          relative flex h-64 w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed transition-all duration-300
+          before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_30%_20%,rgba(14,165,233,0.14),transparent_50%),radial-gradient(circle_at_80%_70%,rgba(34,197,94,0.16),transparent_55%)] before:opacity-0 before:transition-opacity before:duration-300
           flex flex-col items-center justify-center cursor-pointer overflow-hidden
           ${isDragging
-            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10'
-            : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-slate-800/30 hover:bg-gray-100 dark:hover:bg-slate-800/50 hover:border-indigo-400 dark:hover:border-indigo-500'
+            ? 'border-sky-500 bg-sky-50/90 dark:bg-sky-500/10 before:opacity-100'
+            : 'border-slate-300/80 bg-white/80 hover:border-sky-400 hover:bg-white dark:border-slate-600/70 dark:bg-slate-900/60 dark:hover:border-sky-500 dark:hover:bg-slate-900/85 group-hover:before:opacity-100'
           }
           ${isUploading ? 'pointer-events-none opacity-70' : ''}
         `}
@@ -103,25 +104,26 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, c
 
         {isUploading ? (
           <>
-            <div className="mb-3 p-4 rounded-full bg-indigo-500/10 dark:bg-indigo-500/20">
-              <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" style={{ borderWidth: '3px' }} />
+            <div className="mb-4 rounded-full border border-sky-200 bg-sky-50 p-4 dark:border-sky-500/30 dark:bg-sky-500/10">
+              <div className="h-8 w-8 animate-spin rounded-full border-t-transparent" style={{ borderWidth: '3px', borderStyle: 'solid', borderColor: 'rgb(14 165 233)' }} />
             </div>
-            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Đang xử lý tài liệu...</p>
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Đang xử lý tài liệu...</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Hệ thống đang tách văn bản và tạo embeddings.</p>
           </>
         ) : (
           <>
-            <div className="mb-3 p-4 rounded-full bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-500 dark:text-indigo-400 group-hover:scale-110 transition-transform duration-300">
-              <span className="material-icons-round" style={{ fontSize: '30px' }}>cloud_upload</span>
+            <div className="mb-4 rounded-2xl border border-sky-200/80 bg-white p-4 text-sky-600 shadow-lg shadow-sky-500/10 transition-transform duration-300 group-hover:scale-105 dark:border-sky-500/30 dark:bg-slate-900 dark:text-sky-300">
+              <span className="material-icons-round" style={{ fontSize: '30px' }}>upload_file</span>
             </div>
-            <h3 className="text-base font-medium text-gray-700 dark:text-gray-200">Kéo thả file vào đây</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              hoặc <span className="text-indigo-500 hover:underline font-medium cursor-pointer">nhấn để chọn file</span>
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Kéo thả tài liệu vào đây</h3>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              hoặc <span className="font-semibold text-sky-600 dark:text-sky-300">nhấn để chọn file từ máy</span>
             </p>
-            <div className="flex gap-2 mt-4">
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
               {['PDF', 'DOCX', 'PNG', 'JPG'].map((type) => (
                 <span
                   key={type}
-                  className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-slate-700 rounded"
+                  className="rounded-full border border-slate-300/80 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
                 >
                   {type}
                 </span>

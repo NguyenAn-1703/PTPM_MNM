@@ -1,216 +1,357 @@
-import { useState, useEffect, useCallback } from 'react';
-import './styles/index';
-import { api, type Context, type StatusResponse } from './services/api';
-import { Sidebar, FileUpload, ChatInterface } from './components';
+import { useState, useEffect, useCallback } from "react";
+import "./styles/index";
+import { api, type Context, type StatusResponse } from "./services/api";
+import { Sidebar, FileUpload, ChatInterface } from "./components";
+import type { Message } from "./components/ChatInterface";
+
+interface ChatSessionPayload {
+    id: string;
+    createdAt: number;
+    updatedAt: number;
+    messages: Message[];
+}
+
+const CHAT_SESSIONS_KEY = "chatSessionsV1";
+const ACTIVE_CHAT_SESSION_KEY = "activeChatSessionIdV1";
+
+const createEmptySession = (): ChatSessionPayload => {
+    const now = Date.now();
+    return {
+        id: String(now),
+        createdAt: now,
+        updatedAt: now,
+        messages: [],
+    };
+};
 
 function App() {
-  const [darkMode, setDarkMode] = useState(true);
-  const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [isLoadingStatus, setIsLoadingStatus] = useState(true);
-  const [isUploading, setIsUploading] = useState(false);
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const [documentCount, setDocumentCount] = useState(0);
-  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const historyLimit = status?.history_max_messages || 7;
+    const [darkMode, setDarkMode] = useState(false);
+    const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+    const [status, setStatus] = useState<StatusResponse | null>(null);
+    const [isLoadingStatus, setIsLoadingStatus] = useState(true);
+    const [isUploading, setIsUploading] = useState(false);
+    const [isChatLoading, setIsChatLoading] = useState(false);
+    const [documentCount, setDocumentCount] = useState(0);
+    const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+    const [chatSessions, setChatSessions] = useState<ChatSessionPayload[]>([]);
+    const [activeSessionId, setActiveSessionId] = useState("");
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [isSessionReady, setIsSessionReady] = useState(false);
+    const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+    const historyLimit = status?.history_max_messages || 7;
 
-  // Sync dark mode class on <html>
-  useEffect(() => {
-    const html = document.documentElement;
-    if (darkMode) {
-      html.classList.add('dark');
-    } else {
-      html.classList.remove('dark');
-    }
-  }, [darkMode]);
+    // Load all sessions + active session from sessionStorage
+    useEffect(() => {
+        const savedSessions = sessionStorage.getItem(CHAT_SESSIONS_KEY);
+        let initialSessions: ChatSessionPayload[] = [];
 
-  useEffect(() => {
-    fetchStatus();
-  }, []);
-
-  const fetchStatus = async () => {
-    setIsLoadingStatus(true);
-    try {
-      const res = await api.getStatus();
-      setStatus(res);
-      setDocumentCount(res.document_count || 0);
-      if (res.uploaded_files) {
-        setUploadedFiles(res.uploaded_files);
-      }
-    } catch (error) {
-      console.error('Error fetching status:', error);
-    } finally {
-      setIsLoadingStatus(false);
-    }
-  };
-
-  const showNotification = (type: 'success' | 'error', message: string) => {
-    setNotification({ type, message });
-    setTimeout(() => setNotification(null), 5000);
-  };
-
-  const handleUpload = async (file: File) => {
-    setIsUploading(true);
-    try {
-      const res = await api.uploadFile(file);
-      if (res.success) {
-        showNotification('success', res.message);
-        setUploadedFiles((prev) => [...prev, res.filename]);
-        setDocumentCount((prev) => prev + res.chunks_added);
-        await fetchStatus();
-      } else {
-        showNotification('error', res.error || 'Upload thất bại');
-      }
-    } catch {
-      showNotification('error', 'Lỗi kết nối server');
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleChat = useCallback(
-    async (message: string, history: { role: 'user' | 'assistant'; content: string }[]): Promise<{ answer: string; contexts: Context[] }> => {
-      setIsChatLoading(true);
-      try {
-        const res = await api.chat(message, history);
-        if (res.success) {
-          return { answer: res.answer, contexts: res.contexts };
+        if (savedSessions) {
+            try {
+                const parsed = JSON.parse(savedSessions) as ChatSessionPayload[];
+                if (Array.isArray(parsed)) {
+                    initialSessions = parsed.filter((item) => item && typeof item.id === "string" && Array.isArray(item.messages));
+                }
+            } catch (e) {
+                console.error("Lỗi load danh sách session chat:", e);
+            }
         }
-        return { answer: res.error || 'Đã xảy ra lỗi', contexts: [] };
-      } catch {
-        return { answer: 'Lỗi kết nối đến server', contexts: [] };
-      } finally {
-        setIsChatLoading(false);
-      }
-    },
-    []
-  );
 
-  const handleClear = async () => {
-    if (!confirm('Bạn có chắc muốn xóa toàn bộ dữ liệu?')) return;
-    try {
-      const res = await api.clearVectorStore();
-      if (res.success) {
-        showNotification('success', 'Đã xóa toàn bộ dữ liệu');
-        setDocumentCount(0);
-        setUploadedFiles([]);
-        await fetchStatus();
-      } else {
-        showNotification('error', res.error || 'Xóa thất bại');
-      }
-    } catch {
-      showNotification('error', 'Lỗi khi xóa dữ liệu');
-    }
-  };
+        if (initialSessions.length === 0) {
+            initialSessions = [createEmptySession()];
+        }
 
-  return (
-    <div className={`flex h-screen overflow-hidden bg-gray-100 dark:bg-slate-900 text-gray-800 dark:text-gray-200 transition-colors duration-300`}>
-      {/* Sidebar */}
-      <Sidebar
-        status={status}
-        isLoading={isLoadingStatus}
-        documentCount={documentCount}
-        onClear={handleClear}
-      />
+        const savedActiveSessionId = sessionStorage.getItem(ACTIVE_CHAT_SESSION_KEY);
+        const defaultActiveSessionId = initialSessions[0].id;
+        const resolvedActiveSessionId = savedActiveSessionId && initialSessions.some((session) => session.id === savedActiveSessionId) ? savedActiveSessionId : defaultActiveSessionId;
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col h-full relative overflow-hidden bg-gray-50 dark:bg-slate-900">
-        {/* Dark Mode Toggle */}
-        <div className="absolute top-4 right-4 z-50">
-          <button
-            onClick={() => setDarkMode(!darkMode)}
-            className=" dark:text-gray-200 hover:scale-105 transition-transform cursor-pointer"
-            title="Chuyển đổi giao diện"
-          >
-            <span className="material-icons-round" style={{ fontSize: '20px' }}>
-              {darkMode ? 'light_mode' : 'dark_mode'}
-            </span>
-          </button>
+        const activeSession = initialSessions.find((session) => session.id === resolvedActiveSessionId) || initialSessions[0];
+
+        setChatSessions(initialSessions);
+        setActiveSessionId(activeSession.id);
+        setMessages(activeSession.messages);
+        setIsSessionReady(true);
+    }, []);
+
+    // Persist all sessions metadata to sessionStorage
+    useEffect(() => {
+        if (!isSessionReady) return;
+        sessionStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(chatSessions));
+        if (activeSessionId) {
+            sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, activeSessionId);
+        }
+    }, [chatSessions, activeSessionId, isSessionReady]);
+
+    // Keep current active session in sync when chat messages change
+    useEffect(() => {
+        if (!isSessionReady || !activeSessionId) return;
+        setChatSessions((prev) =>
+            prev.map((session) =>
+                session.id === activeSessionId
+                    ? {
+                          ...session,
+                          messages,
+                          updatedAt: Date.now(),
+                      }
+                    : session,
+            ),
+        );
+    }, [messages, activeSessionId, isSessionReady]);
+
+    // Sync dark mode class on <html>
+    useEffect(() => {
+        const html = document.documentElement;
+        if (darkMode) {
+            html.classList.add("dark");
+        } else {
+            html.classList.remove("dark");
+        }
+    }, [darkMode]);
+
+    useEffect(() => {
+        fetchStatus();
+    }, []);
+
+    const fetchStatus = async () => {
+        setIsLoadingStatus(true);
+        try {
+            const res = await api.getStatus();
+            setStatus(res);
+            setDocumentCount(res.document_count || 0);
+            if (res.uploaded_files) {
+                setUploadedFiles(res.uploaded_files);
+            }
+        } catch (error) {
+            console.error("Error fetching status:", error);
+        } finally {
+            setIsLoadingStatus(false);
+        }
+    };
+
+    const showNotification = (type: "success" | "error", message: string) => {
+        setNotification({ type, message });
+        setTimeout(() => setNotification(null), 5000);
+    };
+
+    const handleUpload = async (file: File) => {
+        setIsUploading(true);
+        try {
+            const res = await api.uploadFile(file);
+            if (res.success) {
+                showNotification("success", res.message);
+                setUploadedFiles((prev) => [...prev, res.filename]);
+                setDocumentCount((prev) => prev + res.chunks_added);
+                await fetchStatus();
+            } else {
+                showNotification("error", res.error || "Upload thất bại");
+            }
+        } catch {
+            showNotification("error", "Lỗi kết nối server");
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const handleChat = useCallback(async (message: string, history: { role: "user" | "assistant"; content: string }[]): Promise<{ answer: string; contexts: Context[] }> => {
+        setIsChatLoading(true);
+        try {
+            const res = await api.chat(message, history);
+            if (res.success) {
+                return { answer: res.answer, contexts: res.contexts };
+            }
+            return { answer: res.error || "Đã xảy ra lỗi", contexts: [] };
+        } catch {
+            return { answer: "Lỗi kết nối đến server", contexts: [] };
+        } finally {
+            setIsChatLoading(false);
+        }
+    }, []);
+
+    const handleClearVectorStore = async () => {
+        if (!confirm("Bạn có chắc muốn xóa tất cả tài liệu đã upload?")) return;
+        try {
+            const res = await api.clearVectorStore();
+            if (res.success) {
+                showNotification("success", "Đã xóa toàn bộ tài liệu");
+                setDocumentCount(0);
+                setUploadedFiles([]);
+                await fetchStatus();
+            } else {
+                showNotification("error", res.error || "Xóa thất bại");
+            }
+        } catch {
+            showNotification("error", "Lỗi khi xóa dữ liệu");
+        }
+    };
+
+    const handleClearHistory = () => {
+        if (!confirm("Bạn có chắc muốn xóa toàn bộ lịch sử chat?")) return;
+        const freshSession = createEmptySession();
+        setChatSessions([freshSession]);
+        setActiveSessionId(freshSession.id);
+        setMessages([]);
+        sessionStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify([freshSession]));
+        sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, freshSession.id);
+        showNotification("success", "Đã xóa lịch sử chat");
+    };
+
+    const handleNewChat = () => {
+        const newSession = createEmptySession();
+        setChatSessions((prev) => [newSession, ...prev]);
+        setActiveSessionId(newSession.id);
+        setMessages([]);
+        setMobileSidebarOpen(false);
+        showNotification("success", "Đã tạo đoạn chat mới");
+    };
+
+    const handleSelectSession = (sessionId: string) => {
+        const targetSession = chatSessions.find((session) => session.id === sessionId);
+        if (!targetSession) return;
+        setActiveSessionId(targetSession.id);
+        setMessages(targetSession.messages);
+        setMobileSidebarOpen(false);
+    };
+
+    const handleDeleteSession = (sessionId: string) => {
+        const targetSession = chatSessions.find((session) => session.id === sessionId);
+        if (!targetSession) return;
+
+        if (!confirm("Bạn có chắc muốn xóa đoạn chat này?")) return;
+
+        const remainingSessions = chatSessions.filter((session) => session.id !== sessionId);
+
+        if (remainingSessions.length === 0) {
+            const newSession = createEmptySession();
+            setChatSessions([newSession]);
+            setActiveSessionId(newSession.id);
+            setMessages([]);
+            showNotification("success", "Đã xóa đoạn chat");
+            return;
+        }
+
+        setChatSessions(remainingSessions);
+
+        if (activeSessionId === sessionId) {
+            const nextSession = remainingSessions[0];
+            setActiveSessionId(nextSession.id);
+            setMessages(nextSession.messages);
+        }
+
+        showNotification("success", "Đã xóa đoạn chat");
+    };
+
+    return (
+        <div className="relative flex h-screen overflow-hidden text-slate-800 transition-colors duration-300 dark:text-slate-200">
+            {mobileSidebarOpen && <button onClick={() => setMobileSidebarOpen(false)} className="fixed inset-0 z-30 bg-slate-950/45 backdrop-blur-[2px] lg:hidden" aria-label="Đóng menu" />}
+
+            <Sidebar
+                status={status}
+                isLoading={isLoadingStatus}
+                documentCount={documentCount}
+                messages={messages}
+                chatSessions={chatSessions}
+                activeSessionId={activeSessionId}
+                onClearVectorStore={handleClearVectorStore}
+                onClearHistory={handleClearHistory}
+                onNewChat={handleNewChat}
+                onSelectSession={handleSelectSession}
+                onDeleteSession={handleDeleteSession}
+                isMobileOpen={mobileSidebarOpen}
+                onCloseMobile={() => setMobileSidebarOpen(false)}
+            />
+
+            <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden p-2 md:p-3 lg:p-4">
+                <div className="chat-shell relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] shadow-2xl shadow-slate-900/8">
+                    <header className="flex items-center justify-between border-b border-slate-200/70 px-3 py-3 dark:border-slate-700/70 md:px-5">
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setMobileSidebarOpen(true)}
+                                className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 lg:hidden"
+                                title="Mở menu"
+                            >
+                                <span className="material-icons-round" style={{ fontSize: "20px" }}>
+                                    menu
+                                </span>
+                            </button>
+                            <div>
+                                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 md:text-lg">Document Chat</h2>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">Phong cách kết hợp ChatGPT + Gemini</p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <span className="hidden rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 md:inline-flex">
+                                {status?.llm_model || "LLM"}
+                            </span>
+                            <button
+                                onClick={() => setDarkMode(!darkMode)}
+                                className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:-translate-y-0.5 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                                title="Chuyển đổi giao diện"
+                            >
+                                <span className="material-icons-round" style={{ fontSize: "20px" }}>
+                                    {darkMode ? "light_mode" : "dark_mode"}
+                                </span>
+                            </button>
+                        </div>
+                    </header>
+
+                    {notification && (
+                        <div className={`fixed right-4 top-4 z-50 flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-xl animate-fade-in ${notification.type === "success" ? "bg-emerald-500" : "bg-rose-500"}`}>
+                            <span className="material-icons-round" style={{ fontSize: "18px" }}>
+                                {notification.type === "success" ? "check_circle" : "error"}
+                            </span>
+                            <p>{notification.message}</p>
+                        </div>
+                    )}
+
+                    {documentCount === 0 ? (
+                        <div className="flex flex-1 items-center justify-center overflow-y-auto px-4 py-8 md:px-8">
+                            <div className="w-full max-w-3xl rounded-[30px] border border-slate-200/70 bg-white/85 p-6 shadow-xl shadow-slate-900/5 dark:border-slate-700/70 dark:bg-slate-900/70 md:p-8">
+                                <div className="mb-7 text-center">
+                                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-sky-500 to-emerald-500 shadow-lg shadow-sky-500/25">
+                                        <span className="material-icons-round text-white" style={{ fontSize: "30px" }}>
+                                            description
+                                        </span>
+                                    </div>
+                                    <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 md:text-4xl">Bắt đầu với tài liệu của bạn</h1>
+                                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400 md:text-base">Tải file lên để đặt câu hỏi, tóm tắt hoặc truy xuất thông tin theo ngữ cảnh.</p>
+                                </div>
+
+                                <FileUpload onUpload={handleUpload} isUploading={isUploading} />
+
+                                <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+                                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 dark:border-slate-700 dark:bg-slate-800">PDF</span>
+                                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 dark:border-slate-700 dark:bg-slate-800">DOC / DOCX</span>
+                                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 dark:border-slate-700 dark:bg-slate-800">PNG / JPG</span>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="border-b border-slate-200/70 px-3 py-3 dark:border-slate-700/70 md:px-6">
+                                <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2">
+                                    <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Tài liệu</span>
+                                    {uploadedFiles.map((file, idx) => (
+                                        <span
+                                            key={idx}
+                                            className="inline-flex items-center gap-1 rounded-full border border-emerald-300/70 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300"
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: "13px" }}>
+                                                check_circle
+                                            </span>
+                                            {file}
+                                        </span>
+                                    ))}
+                                    <FileUpload onUpload={handleUpload} isUploading={isUploading} compact />
+                                </div>
+                            </div>
+
+                            <ChatInterface messages={messages} setMessages={setMessages} onSendMessage={handleChat} isLoading={isChatLoading} historyLimit={historyLimit} />
+                        </>
+                    )}
+                </div>
+            </main>
         </div>
-
-        {/* Notification Toast */}
-        {notification && (
-          <div
-            className={`
-              fixed top-4 right-16 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl animate-fade-in
-              ${notification.type === 'success'
-                ? 'bg-emerald-500 text-white'
-                : 'bg-red-500 text-white'
-              }
-            `}
-          >
-            <span className="material-icons-round" style={{ fontSize: '18px' }}>
-              {notification.type === 'success' ? 'check_circle' : 'error'}
-            </span>
-            <p className="text-sm font-medium">{notification.message}</p>
-          </div>
-        )}
-
-        {documentCount === 0 ? (
-          /* No files yet: centered upload zone */
-          <div className="flex-1 flex flex-col items-center justify-center px-4 md:px-8 py-12">
-            <div className="w-full max-w-2xl">
-              {/* Header */}
-              <div className="text-center mb-8">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-100 dark:bg-amber-500/10 mb-4">
-                  <span className="material-icons-round text-amber-500" style={{ fontSize: '32px' }}>folder_open</span>
-                </div>
-                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Upload Tài Liệu</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                  Tải lên tài liệu để bắt đầu đặt câu hỏi với AI
-                </p>
-              </div>
-
-              <FileUpload onUpload={handleUpload} isUploading={isUploading} />
-
-              {/* Format hints */}
-              <div className="mt-6 flex items-center justify-center gap-6 text-xs text-gray-400 dark:text-gray-500">
-                <span className="flex items-center gap-1.5">
-                  <span className="material-icons-round" style={{ fontSize: '14px' }}>picture_as_pdf</span>PDF
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="material-icons-round" style={{ fontSize: '14px' }}>description</span>Word
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="material-icons-round" style={{ fontSize: '14px' }}>image</span>PNG / JPG
-                </span>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Compact file bar */}
-            <div className="flex-shrink-0 px-4 md:px-8 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-slate-800/50">
-              <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-2">
-                <span className="material-icons-round text-amber-500" style={{ fontSize: '18px' }}>folder_open</span>
-                {uploadedFiles.map((file, idx) => (
-                  <span
-                    key={idx}
-                    className="flex items-center gap-1 px-3 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-full text-xs font-medium"
-                  >
-                    <span className="material-icons-round" style={{ fontSize: '12px' }}>check_circle</span>
-                    {file}
-                  </span>
-                ))}
-                <FileUpload onUpload={handleUpload} isUploading={isUploading} compact />
-              </div>
-            </div>
-
-            {/* Chat Section */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="flex-shrink-0 px-4 md:px-8 pt-4 bg-white dark:bg-slate-800/30 border-b border-gray-200 dark:border-gray-700/50">
-                <div className="max-w-5xl mx-auto flex items-center gap-2 text-gray-700 dark:text-gray-300 pb-3">
-                  <span className="material-icons-round" style={{ fontSize: '20px' }}>chat_bubble_outline</span>
-                  <h2 className="font-semibold text-lg">Chat với AI</h2>
-                </div>
-              </div>
-              <ChatInterface onSendMessage={handleChat} isLoading={isChatLoading} historyLimit={historyLimit} />
-            </div>
-          </>
-        )}
-      </main>
-    </div>
-  );
+    );
 }
 
 export default App;

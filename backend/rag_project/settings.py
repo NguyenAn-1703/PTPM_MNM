@@ -103,3 +103,18 @@ EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL')
 
 # Vector DB path
 VECTOR_DB_PATH = BASE_DIR / 'vector_store'
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+    "console": {"class": "logging.StreamHandler"},
+},
+    "loggers": {
+    "django.server": {
+    "handlers": ["console"],
+    "level": "WARNING", # đổi INFO <-> WARNING để bật/tắt request log
+    "propagate": False,
+        },
+    },
+}
