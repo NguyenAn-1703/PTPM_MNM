@@ -3,14 +3,71 @@ RAG Engine Module
 Core logic cho Retrieval-Augmented Generation
 """
 import os
+import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from django.conf import settings
+import requests
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import OllamaEmbeddings
-from langchain_community.llms import Ollama
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+from django.conf import settings
+from langchain_core.embeddings import Embeddings
+
+
+class OllamaHTTPEmbeddings(Embeddings):
+    """Minimal embedding client compatible with LangChain FAISS interface."""
+
+    def __init__(self, base_url: str, model: str, timeout: int = 120):
+        self.base_url = (base_url or "http://localhost:11434").rstrip("/")
+        self.model = model
+        self.timeout = timeout
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+
+        payload = {
+            "model": self.model,
+            "input": texts,
+        }
+
+        # Prefer modern Ollama endpoint that accepts batch input.
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/embed",
+                json=payload,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+            embeddings = data.get("embeddings", [])
+            if embeddings:
+                return embeddings
+        except Exception:
+            pass
+
+        # Fallback to legacy single-input endpoint for compatibility.
+        vectors: List[List[float]] = []
+        for text in texts:
+            response = requests.post(
+                f"{self.base_url}/api/embeddings",
+                json={"model": self.model, "prompt": text},
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+            vector = data.get("embedding")
+            if not vector:
+                raise RuntimeError("Ollama embedding response missing 'embedding'")
+            vectors.append(vector)
+
+        return vectors
+
+    def embed_query(self, text: str) -> List[float]:
+        vectors = self.embed_documents([text])
+        if not vectors:
+            raise RuntimeError("Failed to generate query embedding")
+        return vectors[0]
 
 
 class RAGEngine:
@@ -24,33 +81,24 @@ class RAGEngine:
     
     def __init__(self):
         self.vector_store_path = Path(settings.VECTOR_DB_PATH)
-        self.ollama_base_url = settings.OLLAMA_BASE_URL
-        self.llm_model = settings.OLLAMA_LLM
-        self.embedding_model = settings.EMBEDDING_MODEL
+        self.ollama_base_url = (settings.OLLAMA_BASE_URL or "http://localhost:11434").rstrip("/")
+        self.llm_model = settings.OLLAMA_LLM or "qwen2.5:7b"
+        self.embedding_model = settings.EMBEDDING_MODEL or "nomic-embed-text"
+        self.request_timeout = 120
         
         # Initialize embeddings
-        self.embeddings = OllamaEmbeddings(
-            model=self.embedding_model,
-            base_url=self.ollama_base_url
-        )
-        
-        # Initialize LLM
-        self.llm = Ollama(
-            model=self.llm_model,
+        self.embeddings = OllamaHTTPEmbeddings(
             base_url=self.ollama_base_url,
-            temperature=0.7
+            model=self.embedding_model,
+            timeout=self.request_timeout,
         )
         
-        # Text splitter configuration
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=150,
-            length_function=len,
-            separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""]
-        )
+        # Lightweight chunking configuration.
+        self.chunk_size = 1000
+        self.chunk_overlap = 150
         
         # Vector store
-        self.vector_store: Optional[FAISS] = None
+        self.vector_store: Optional[Any] = None
         self._load_vector_store()
 
         # Prompt configuration
@@ -60,6 +108,33 @@ class RAGEngine:
         )
         self.history_max_messages = 7
         self.history_max_chars = 2000
+
+    def _split_text(self, text: str) -> List[str]:
+        """Split text into overlapping chunks without importing heavy NLP stacks."""
+        text = (text or "").strip()
+        if not text:
+            return []
+
+        size = max(1, int(self.chunk_size))
+        overlap = max(0, int(self.chunk_overlap))
+        if overlap >= size:
+            overlap = max(0, size // 5)
+
+        step = max(1, size - overlap)
+        chunks: List[str] = []
+
+        start = 0
+        text_len = len(text)
+        while start < text_len:
+            end = min(start + size, text_len)
+            chunk = text[start:end].strip()
+            if chunk:
+                chunks.append(chunk)
+            if end >= text_len:
+                break
+            start += step
+
+        return chunks
 
     def _format_history(self, history: List[Dict[str, str]]) -> str:
         """Format and truncate recent chat history."""
@@ -98,26 +173,44 @@ class RAGEngine:
         history_text = self._format_history(history)
 
         condense_prompt = (
-            "Dua vao lich su hoi thoai va cau hoi moi nhat, "
-            "hay viet lai cau hoi moi thanh mot cau hoi doc lap, day du y nghia. "
-            "Chi tra ve cau hoi doc lap, khong giai thich.\n\n"
-            f"LICH SU HOI THOAI:\n{history_text}\n\n"
-            f"CAU HOI HIEN TAI: {question}\n\n"
-            "CAU HOI DOC LAP:"
+            "Dựa vào lịch sử hội thoại và câu hỏi mới nhất, "
+            "hãy viết lại câu hỏi mới thành một câu hỏi độc lập, đầy đủ ý nghĩa. "
+            "Chỉ trả về câu hỏi độc lập, không giải thích.\n\n"
+            f"LỊCH SỬ HOI THOẠI:\n{history_text}\n\n"
+            f"CÂU HỎI HIỆN TẠI: {question}\n\n"
+            "CÂU HỎI DOC LAP:"
         )
 
         try:
-            condensed = self.llm.invoke(condense_prompt)
+            condensed = self._invoke_llm(condense_prompt)
             condensed = str(condensed).strip().strip('"')
             return condensed or question
         except Exception:
             return question
+
+    def _invoke_llm(self, prompt: str) -> str:
+        """Call Ollama generate API without importing heavyweight LangChain LLM wrappers."""
+        response = requests.post(
+            f"{self.ollama_base_url}/api/generate",
+            json={
+                "model": self.llm_model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": 0.7},
+            },
+            timeout=self.request_timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return str(data.get("response", "")).strip()
     
     def _load_vector_store(self):
         """Load vector store từ disk nếu tồn tại"""
         try:
             index_path = self.vector_store_path / "index.faiss"
             if index_path.exists():
+                from langchain_community.vectorstores import FAISS
+
                 self.vector_store = FAISS.load_local(
                     str(self.vector_store_path),
                     self.embeddings,
@@ -150,7 +243,9 @@ class RAGEngine:
             raise ValueError("Text rỗng, không thể thêm vào vector store")
         
         # Split text thành chunks
-        chunks = self.text_splitter.split_text(text)
+        chunks = self._split_text(text)
+        
+        logger.info(f"Processing {len(chunks)} chunks")
         
         if not chunks:
             raise ValueError("Không thể chia text thành chunks")
@@ -167,6 +262,8 @@ class RAGEngine:
         
         # Thêm vào vector store
         if self.vector_store is None:
+            from langchain_community.vectorstores import FAISS
+
             self.vector_store = FAISS.from_texts(
                 texts=chunks,
                 embedding=self.embeddings,
@@ -230,8 +327,12 @@ class RAGEngine:
         history = history or []
         standalone_question = self._condense_question(history, question)
         
+        logger.info(f"Query: {question}")
+        
         # Retrieve relevant contexts
         contexts = self.search(standalone_question, top_k=top_k)
+        
+        logger.info(f"Retrieved {len(contexts)} documents")
         
         if not contexts:
             return {
@@ -245,18 +346,17 @@ class RAGEngine:
         
         # Create prompt
         history_text = self._format_history(history)
-
         prompt = (
             f"SYSTEM PROMPT:\n{self.system_prompt}\n\n"
-            f"CHAT HISTORY (3-5 cau gan nhat):\n{history_text}\n\n"
-            f"RAG CONTEXT (chunks lien quan):\n{context_text}\n\n"
-            f"CAU HOI HIEN TAI:\n{question}\n\n"
-            "TRA LOI:"
+            f"CHAT HISTORY (3-5 câu gần nhất):\n{history_text}\n\n"
+            f"RAG CONTEXT (chunks liên quan):\n{context_text}\n\n"
+            f"CÂU HỎI HIỆN TẠI:\n{question}\n\n"
+            "TRẢ LỜI:"
         )
         
         # Generate answer
         try:
-            answer = self.llm.invoke(prompt)
+            answer = self._invoke_llm(prompt)
         except Exception as e:
             answer = f"Lỗi khi gọi LLM: {str(e)}"
         
@@ -314,7 +414,6 @@ class RAGEngine:
 _rag_engine: Optional[RAGEngine] = None
 
 def get_rag_engine() -> RAGEngine:
-    """Get singleton RAG engine instance"""
     global _rag_engine
     if _rag_engine is None:
         _rag_engine = RAGEngine()

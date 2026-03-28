@@ -9,8 +9,10 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework import status
 
-from .utils.document_processor import process_document, get_file_extension
-from .utils.rag_engine import get_rag_engine
+
+def _get_rag_engine():
+    from .utils.rag_engine import get_rag_engine
+    return get_rag_engine()
 
 
 class UploadDocumentView(APIView):
@@ -24,6 +26,8 @@ class UploadDocumentView(APIView):
     IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'bmp', 'tiff']
     
     def post(self, request):
+        from .utils.document_processor import process_document, get_file_extension
+
         if 'file' not in request.FILES:
             return Response(
                 {"error": "Không tìm thấy file trong request"},
@@ -64,7 +68,7 @@ class UploadDocumentView(APIView):
                 )
             
             # Add to vector store
-            rag_engine = get_rag_engine()
+            rag_engine = _get_rag_engine()
             chunks_added = rag_engine.add_documents(
                 text=text,
                 metadata={
@@ -117,7 +121,7 @@ class ChatView(APIView):
             )
         
         try:
-            rag_engine = get_rag_engine()
+            rag_engine = _get_rag_engine()
             result = rag_engine.chat(question, history=history)
             
             return Response({
@@ -142,7 +146,7 @@ class StatusView(APIView):
     """
     def get(self, request):
         try:
-            rag_engine = get_rag_engine()
+            rag_engine = _get_rag_engine()
             stats = rag_engine.get_stats()
             
             return Response({
@@ -165,7 +169,7 @@ class ClearVectorStoreView(APIView):
     """
     def delete(self, request):
         try:
-            rag_engine = get_rag_engine()
+            rag_engine = _get_rag_engine()
             rag_engine.clear_vector_store()
             
             return Response({
