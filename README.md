@@ -31,7 +31,7 @@ Dự án tập trung vào các tính năng cốt lõi:
 
 <div align="center">
 
-![RAG Process Architecture](./img/RAG.png) <!-- Kiến trúc xử lý luồng hệ thống RAG -->
+![RAG Process Architecture](./docs/RAG.png) <!-- Kiến trúc xử lý luồng hệ thống RAG -->
 
 </div>
 

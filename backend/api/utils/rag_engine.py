@@ -2,7 +2,6 @@
 RAG Engine Module
 Core logic cho Retrieval-Augmented Generation
 """
-import os
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -85,6 +84,9 @@ class RAGEngine:
         self.llm_model = settings.OLLAMA_LLM or "qwen2.5:7b"
         self.embedding_model = settings.EMBEDDING_MODEL or "nomic-embed-text"
         self.request_timeout = 120
+        # FAISS returns L2 distance (lower is better). Distances above this threshold
+        # are treated as irrelevant to avoid hallucinated answers.
+        self.max_retrieval_distance = 1.2
         
         # Initialize embeddings
         self.embeddings = OllamaHTTPEmbeddings(
@@ -103,8 +105,11 @@ class RAGEngine:
 
         # Prompt configuration
         self.system_prompt = (
-            "Bạn là trợ lý AI trả lời dựa trên ngữ cảnh được cung cấp. "
-            "Nếu không có đủ thông tin trong ngữ cảnh, hãy nói rõ rằng bạn không tìm thấy thông tin liên quan."
+            "Bạn là trợ lý AI trả lời dựa trên ngữ cảnh được cung cấp."
+            "Tuyệt đối không được tự ý thêm thông tin ngoài ngữ cảnh."
+            "Hãy trả lời chính xác dựa trên thông tin đã cho."
+            "Nếu không có đủ thông tin trong ngữ cảnh, phải trả lời đúng câu: "
+            "'Không tìm thấy thông tin liên quan trong tài liệu đã upload.'."
         )
         self.history_max_messages = 7
         self.history_max_chars = 2000
@@ -178,7 +183,7 @@ class RAGEngine:
             "Chỉ trả về câu hỏi độc lập, không giải thích.\n\n"
             f"LỊCH SỬ HOI THOẠI:\n{history_text}\n\n"
             f"CÂU HỎI HIỆN TẠI: {question}\n\n"
-            "CÂU HỎI DOC LAP:"
+            "CÂU HỎI ĐÔC LẬP:"
         )
 
         try:
@@ -196,13 +201,27 @@ class RAGEngine:
                 "model": self.llm_model,
                 "prompt": prompt,
                 "stream": False,
-                "options": {"temperature": 0.7},
+                "options": {"temperature": 0.2},
             },
             timeout=self.request_timeout,
         )
         response.raise_for_status()
         data = response.json()
         return str(data.get("response", "")).strip()
+
+    def _filter_relevant_contexts(self, contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Keep only contexts with acceptable FAISS distance."""
+        filtered = []
+        for ctx in contexts:
+            try:
+                score = float(ctx.get("score", 0.0))
+            except (TypeError, ValueError):
+                continue
+
+            if score <= self.max_retrieval_distance:
+                filtered.append(ctx)
+
+        return filtered
     
     def _load_vector_store(self):
         """Load vector store từ disk nếu tồn tại"""
@@ -329,8 +348,9 @@ class RAGEngine:
         
         logger.info(f"Query: {question}")
         
-        # Retrieve relevant contexts
+        # Retrieve contexts and filter weak matches.
         contexts = self.search(standalone_question, top_k=top_k)
+        contexts = self._filter_relevant_contexts(contexts)
         
         logger.info(f"Retrieved {len(contexts)} documents")
         

@@ -1,88 +1,88 @@
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = "http://localhost:8000/api";
 
 export interface UploadResponse {
-  success: boolean;
-  message: string;
-  filename: string;
-  file_type: string;
-  text_length: number;
-  chunks_added: number;
-  error?: string;
+    success: boolean;
+    message: string;
+    filename: string;
+    file_type: string;
+    text_length: number;
+    chunks_added: number;
+    error?: string;
 }
 
 export interface Context {
-  content: string;
-  metadata: {
-    filename?: string;
-    file_type?: string;
-    chunk_index?: number;
-    total_chunks?: number;
-  };
-  score: number;
+    content: string;
+    metadata: {
+        filename?: string;
+        file_type?: string;
+        chunk_index?: number;
+        total_chunks?: number;
+    };
+    score: number;
 }
 
 export interface ChatHistoryMessage {
-  role: 'user' | 'assistant';
-  content: string;
+    role: "user" | "assistant";
+    content: string;
 }
 
 export interface ChatResponse {
-  success: boolean;
-  question: string;
-  answer: string;
-  contexts: Context[];
-  has_context: boolean;
-  error?: string;
+    success: boolean;
+    question: string;
+    answer: string;
+    contexts: Context[];
+    has_context: boolean;
+    error?: string;
 }
 
 export interface StatusResponse {
-  success: boolean;
-  status: string;
-  llm_model: string;
-  embedding_model: string;
-  vector_db: string;
-  ollama_url: string;
-  history_max_messages?: number;
-  has_documents: boolean;
-  document_count: number;
-  uploaded_files?: string[];
-  error?: string;
+    success: boolean;
+    status: string;
+    llm_model: string;
+    embedding_model: string;
+    vector_db: string;
+    ollama_url: string;
+    history_max_messages?: number;
+    has_documents: boolean;
+    document_count: number;
+    uploaded_files?: string[];
+    error?: string;
 }
 
 export const api = {
-  async uploadFile(file: File): Promise<UploadResponse> {
-    const formData = new FormData();
-    formData.append('file', file);
+    async uploadFile(file: File): Promise<UploadResponse> {
+        const formData = new FormData();
+        formData.append("file", file);
 
-    const response = await fetch(`${API_BASE_URL}/upload/`, {
-      method: 'POST',
-      body: formData,
-    });
+        const response = await fetch(`${API_BASE_URL}/upload/`, {
+            method: "POST",
+            body: formData,
+        });
 
-    return response.json();
-  },
+        return response.json();
+    },
 
-  async chat(question: string, history: ChatHistoryMessage[] = []): Promise<ChatResponse> {
-    const response = await fetch(`${API_BASE_URL}/chat/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ question, history }),
-    });
+    async chat(question: string, history: ChatHistoryMessage[] = []): Promise<ChatResponse> {
+        const response = await fetch(`${API_BASE_URL}/chat/`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ question, history }),
+        });
 
-    return response.json();
-  },
+        return response.json();
+    },
 
-  async getStatus(): Promise<StatusResponse> {
-    const response = await fetch(`${API_BASE_URL}/status/`);
-    return response.json();
-  },
+    async getStatus(): Promise<StatusResponse> {
+        const response = await fetch(`${API_BASE_URL}/status/`);
+        return response.json();
+    },
 
-  async clearVectorStore(): Promise<{ success: boolean; message?: string; error?: string }> {
-    const response = await fetch(`${API_BASE_URL}/clear/`, {
-      method: 'DELETE',
-    });
-    return response.json();
-  },
+    async clearVectorStore(): Promise<{ success: boolean; message?: string; error?: string }> {
+        const response = await fetch(`${API_BASE_URL}/clear/`, {
+            method: "DELETE",
+        });
+        return response.json();
+    },
 };
