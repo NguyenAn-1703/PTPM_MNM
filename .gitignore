@@ -28,4 +28,4 @@ dist-ssr
 *.sln
 *.sw?
 .github
-t
+t.md

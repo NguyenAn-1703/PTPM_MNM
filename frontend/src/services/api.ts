@@ -7,6 +7,14 @@ export interface UploadResponse {
     file_type: string;
     text_length: number;
     chunks_added: number;
+    total_files?: number;
+    total_chunks_added?: number;
+    processed_files?: Array<{
+        filename: string;
+        file_type: string;
+        text_length: number;
+        chunks_added: number;
+    }>;
     chunk_size?: number;
     chunk_overlap?: number;
     error?: string;
@@ -51,6 +59,23 @@ export interface ChatResponse {
     session_id?: string;
     standalone_question?: string;
     rewritten?: boolean;
+    retrieval_mode?: "vector" | "hybrid";
+    applied_filters?: {
+        filenames?: string[];
+        file_types?: string[];
+    };
+    reranker?: {
+        used: boolean;
+        model?: string | null;
+    };
+    self_rag_applied?: boolean;
+    confidence_score?: number;
+    confidence_label?: "low" | "medium" | "high";
+    self_check?: {
+        supported?: boolean;
+        confidence?: number;
+        feedback?: string;
+    };
     error?: string;
 }
 
@@ -69,6 +94,8 @@ export interface StatusResponse {
     embedding_model: string;
     vector_db: string;
     ollama_url: string;
+    supported_retrieval_modes?: Array<"vector" | "hybrid">;
+    cross_encoder_model?: string;
     history_max_messages?: number;
     default_chunk_size?: number;
     default_chunk_overlap?: number;
@@ -116,10 +143,47 @@ export interface ChunkStrategyEvaluationResponse {
     error?: string;
 }
 
+export interface RetrievalBenchmarkDetail {
+    question: string;
+    expected_keywords: string[];
+    hit: boolean;
+    latency_ms: number;
+    retrieved_contexts: number;
+    reranker_used: boolean;
+}
+
+export interface RetrievalBenchmarkModeReport {
+    mode: "vector" | "hybrid" | "hybrid_rerank";
+    retrieval_accuracy: number;
+    hits: number;
+    total_questions: number;
+    avg_latency_ms: number;
+    details: RetrievalBenchmarkDetail[];
+}
+
+export interface RetrievalBenchmarkResponse {
+    success: boolean;
+    top_k: number;
+    retrieval_modes: string[];
+    applied_filters: {
+        filenames: string[];
+        file_types: string[];
+    };
+    summary: {
+        metric: string;
+        question_count: number;
+        evaluated_modes: number;
+        top_k: number;
+    };
+    best_mode: RetrievalBenchmarkModeReport | null;
+    reports: RetrievalBenchmarkModeReport[];
+    error?: string;
+}
+
 export const api = {
-    async uploadFile(file: File, options?: { chunkSize?: number; chunkOverlap?: number }): Promise<UploadResponse> {
+    async uploadFiles(files: File[], options?: { chunkSize?: number; chunkOverlap?: number }): Promise<UploadResponse> {
         const formData = new FormData();
-        formData.append("file", file);
+        files.forEach((file) => formData.append("files", file));
         if (options?.chunkSize) {
             formData.append("chunk_size", String(options.chunkSize));
         }
@@ -135,13 +199,37 @@ export const api = {
         return response.json();
     },
 
-    async chat(question: string, history: ChatHistoryMessage[] = [], sessionId?: string): Promise<ChatResponse> {
+    async uploadFile(file: File, options?: { chunkSize?: number; chunkOverlap?: number }): Promise<UploadResponse> {
+        return this.uploadFiles([file], options);
+    },
+
+    async chat(
+        question: string,
+        history: ChatHistoryMessage[] = [],
+        sessionId?: string,
+        options?: {
+            retrievalMode?: "vector" | "hybrid";
+            filenames?: string[];
+            fileTypes?: string[];
+            useReranker?: boolean;
+            useSelfRag?: boolean;
+        },
+    ): Promise<ChatResponse> {
         const response = await fetch(`${API_BASE_URL}/chat/`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify({ question, history, session_id: sessionId }),
+            body: JSON.stringify({
+                question,
+                history,
+                session_id: sessionId,
+                retrieval_mode: options?.retrievalMode || "hybrid",
+                filenames: options?.filenames || [],
+                file_types: options?.fileTypes || [],
+                use_reranker: options?.useReranker ?? true,
+                use_self_rag: options?.useSelfRag ?? true,
+            }),
         });
 
         return response.json();
@@ -178,6 +266,23 @@ export const api = {
         top_k?: number;
     }): Promise<ChunkStrategyEvaluationResponse> {
         const response = await fetch(`${API_BASE_URL}/chunk-strategy/evaluate/`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+        return response.json();
+    },
+
+    async benchmarkRetrieval(payload: {
+        evaluation_set: EvaluationCase[];
+        top_k?: number;
+        retrieval_modes?: Array<"vector" | "hybrid" | "hybrid_rerank">;
+        filenames?: string[];
+        file_types?: string[];
+    }): Promise<RetrievalBenchmarkResponse> {
+        const response = await fetch(`${API_BASE_URL}/retrieval/benchmark/`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",

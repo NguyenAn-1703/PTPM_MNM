@@ -1,10 +1,9 @@
-"""Compatibility layer for the refactored RAG package."""
+"""Runtime singleton for RAG engine."""
 from typing import Optional
 
-from .rag import RAGEngine
+from .engine import RAGEngine
 
 
-# Singleton instance
 _rag_engine: Optional[RAGEngine] = None
 
 

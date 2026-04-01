@@ -133,7 +133,7 @@ def main() -> None:
 
     _setup_django()
 
-    from api.utils.rag_engine import get_rag_engine
+    from src.rag.runtime import get_rag_engine
 
     evaluation_set = _load_evaluation_set(evaluation_path)
     rag_engine = get_rag_engine()

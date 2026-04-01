@@ -3,7 +3,7 @@ import React, { useState, useCallback } from "react";
 const ALLOWED_TYPES = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword", "image/png", "image/jpeg", "image/jpg"];
 
 interface FileUploadProps {
-    onUpload: (file: File, options: { chunkSize: number; chunkOverlap: number }) => Promise<void>;
+    onUpload: (files: File[], options: { chunkSize: number; chunkOverlap: number }) => Promise<void>;
     isUploading: boolean;
     compact?: boolean;
     chunkSize: number;
@@ -14,12 +14,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, c
     const [isDragging, setIsDragging] = useState(false);
 
     const handleFile = useCallback(
-        async (file: File) => {
-            if (!ALLOWED_TYPES.includes(file.type) && !file.name.match(/\.(pdf|docx?|png|jpe?g)$/i)) {
+        async (files: File[]) => {
+            const validFiles = files.filter((file) => ALLOWED_TYPES.includes(file.type) || file.name.match(/\.(pdf|docx?|png|jpe?g)$/i));
+            if (validFiles.length === 0) {
                 alert("Chỉ hỗ trợ file PDF, Word, PNG, JPG");
                 return;
             }
-            await onUpload(file, { chunkSize, chunkOverlap });
+            await onUpload(validFiles, { chunkSize, chunkOverlap });
         },
         [onUpload, chunkSize, chunkOverlap],
     );
@@ -39,14 +40,14 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, c
             e.preventDefault();
             setIsDragging(false);
             const files = e.dataTransfer.files;
-            if (files.length > 0) handleFile(files[0]);
+            if (files.length > 0) handleFile(Array.from(files));
         },
         [handleFile],
     );
 
     const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
-        if (files && files.length > 0) handleFile(files[0]);
+        if (files && files.length > 0) handleFile(Array.from(files));
         e.target.value = "";
     };
 
@@ -60,7 +61,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, c
           ${isUploading ? "opacity-60 pointer-events-none" : ""}
         `}
             >
-                <input type="file" onChange={handleFileInput} accept=".pdf,.docx,.doc,.png,.jpg,.jpeg" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" disabled={isUploading} title="Upload thêm file" />
+                <input type="file" multiple onChange={handleFileInput} accept=".pdf,.docx,.doc,.png,.jpg,.jpeg" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" disabled={isUploading} title="Upload thêm file" />
                 {isUploading ? (
                     <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-sky-500 border-t-transparent" />
                 ) : (
@@ -90,7 +91,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, c
           ${isUploading ? "pointer-events-none opacity-70" : ""}
         `}
             >
-                <input type="file" onChange={handleFileInput} accept=".pdf,.docx,.doc,.png,.jpg,.jpeg" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" disabled={isUploading} title="Upload files" />
+                <input type="file" multiple onChange={handleFileInput} accept=".pdf,.docx,.doc,.png,.jpg,.jpeg" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" disabled={isUploading} title="Upload files" />
 
                 {isUploading ? (
                     <>

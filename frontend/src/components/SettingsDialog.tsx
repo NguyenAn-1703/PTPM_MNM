@@ -11,17 +11,26 @@ interface SettingsDialogProps {
     isOpen: boolean;
     chunkSize: number;
     chunkOverlap: number;
+    retrievalMode: "vector" | "hybrid";
+    useReranker: boolean;
+    useSelfRag: boolean;
     onClose: () => void;
-    onApply: (settings: { chunkSize: number; chunkOverlap: number }) => void;
+    onApply: (settings: { chunkSize: number; chunkOverlap: number; retrievalMode: "vector" | "hybrid"; useReranker: boolean; useSelfRag: boolean }) => void;
 }
 
-export const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, chunkSize, chunkOverlap, onClose, onApply }) => {
+export const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, chunkSize, chunkOverlap, retrievalMode, useReranker, useSelfRag, onClose, onApply }) => {
     const [draftChunkSize, setDraftChunkSize] = useState(ensureOption(chunkSize, CHUNK_SIZE_OPTIONS, 1000));
     const [draftChunkOverlap, setDraftChunkOverlap] = useState(ensureOption(chunkOverlap, CHUNK_OVERLAP_OPTIONS, 100));
+    const [draftRetrievalMode, setDraftRetrievalMode] = useState<"vector" | "hybrid">(retrievalMode || "hybrid");
+    const [draftUseReranker, setDraftUseReranker] = useState(Boolean(useReranker));
+    const [draftUseSelfRag, setDraftUseSelfRag] = useState(Boolean(useSelfRag));
 
     const resetDrafts = () => {
         setDraftChunkSize(ensureOption(chunkSize, CHUNK_SIZE_OPTIONS, 1000));
         setDraftChunkOverlap(ensureOption(chunkOverlap, CHUNK_OVERLAP_OPTIONS, 100));
+        setDraftRetrievalMode(retrievalMode || "hybrid");
+        setDraftUseReranker(Boolean(useReranker));
+        setDraftUseSelfRag(Boolean(useSelfRag));
     };
 
     const handleClose = () => {
@@ -35,7 +44,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, chunkSiz
 
     const handleApply = () => {
         if (isInvalid) return;
-        onApply({ chunkSize: draftChunkSize, chunkOverlap: draftChunkOverlap });
+        onApply({ chunkSize: draftChunkSize, chunkOverlap: draftChunkOverlap, retrievalMode: draftRetrievalMode, useReranker: draftUseReranker, useSelfRag: draftUseSelfRag });
         onClose();
     };
 
@@ -92,6 +101,28 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, chunkSiz
                     </label>
 
                     {isInvalid && <p className="text-xs font-semibold text-rose-500">Chunk overlap phải nhỏ hơn chunk size.</p>}
+
+                    <label className="block rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                        Retrieval mode
+                        <select
+                            value={draftRetrievalMode}
+                            onChange={(e) => setDraftRetrievalMode(e.target.value as "vector" | "hybrid")}
+                            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-sky-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                        >
+                            <option value="hybrid">Hybrid (Vector + Keyword)</option>
+                            <option value="vector">Vector only</option>
+                        </select>
+                    </label>
+
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                        <span>Bật cross-encoder rerank</span>
+                        <input type="checkbox" checked={draftUseReranker} onChange={(e) => setDraftUseReranker(e.target.checked)} className="h-4 w-4" />
+                    </label>
+
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                        <span>Bật Self-RAG (tự đánh giá)</span>
+                        <input type="checkbox" checked={draftUseSelfRag} onChange={(e) => setDraftUseSelfRag(e.target.checked)} className="h-4 w-4" />
+                    </label>
                 </div>
 
                 <div className="mt-5 flex items-center justify-end gap-2">

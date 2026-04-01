@@ -45,8 +45,12 @@ Dự án được phân tách cấu trúc rõ ràng giữa frontend và backend 
 RAG_Assistant/
 ├── backend/                    # Core Django Backend
 │   ├── api/                    # Xử lý Logic & APIs
+│   ├── src/                    # RAG core modules (config/loader/processor/database/...)
+│   ├── data/
+│   │   ├── raw/                # Tài liệu đầu vào thô
+│   │   └── processed/          # Dữ liệu đã xử lý (tùy chọn)
 │   ├── rag_project/            # Cấu hình dự án Django
-│   ├── vector_store/           # Nơi lưu trữ vector FAISS database
+│   ├── vector_db/              # Nơi lưu trữ vector FAISS database
 │   ├── requirements.txt        # Các gói thư viện phụ thuộc
 │   └── manage.py               # Khởi chạy hệ thống server
 │
@@ -78,6 +82,15 @@ Hệ thống cho phép điều chỉnh các tham số cấu hình nhanh chóng g
 API đánh giá chunk strategy hỗ trợ benchmark các tổ hợp `chunk_size/chunk_overlap` và trả report `retrieval_accuracy` tại endpoint `POST /api/chunk-strategy/evaluate/`.
 
 `POST /api/chat/` hỗ trợ conversational RAG: có thể gửi `session_id` để backend theo dõi ngữ cảnh theo từng cuộc hội thoại, đồng thời trả về `standalone_question` (câu hỏi follow-up đã được rewrite thành câu độc lập trước khi retrieval). Để reset ngữ cảnh một phiên ngay trên UI, backend cung cấp thêm endpoint `POST /api/chat/memory/clear/`.
+
+Phiên bản hiện tại cũng hỗ trợ nâng cao:
+
+- Hybrid search (`vector + keyword`) và metadata filtering theo `filenames/file_types`
+- Cross-encoder reranking (có fallback lexical nếu model không khả dụng)
+- Self-RAG tối giản: tự đánh giá câu trả lời, rewrite truy vấn và retry 1 vòng khi confidence thấp
+- Trả về `confidence_score` + `confidence_label` để theo dõi độ tin cậy
+- Upload nhiều file trong một request tại `POST /api/upload/` (field `files`)
+- Benchmark định lượng retrieval mode tại `POST /api/retrieval/benchmark/` (vector vs hybrid vs hybrid+rerank)
 
 ---
 

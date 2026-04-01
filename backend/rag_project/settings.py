@@ -100,9 +100,11 @@ MEDIA_ROOT = BASE_DIR / 'media'
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL')
 OLLAMA_LLM = os.getenv('OLLAMA_LLM')
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL')
+CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '1000'))
+CHUNK_OVERLAP = int(os.getenv('CHUNK_OVERLAP', '150'))
 
 # Vector DB path
-VECTOR_DB_PATH = BASE_DIR / 'vector_store'
+VECTOR_DB_PATH = Path(os.getenv('VECTOR_DB_PATH', str(BASE_DIR / 'vector_db')))
 
 LOGGING = {
     "version": 1,

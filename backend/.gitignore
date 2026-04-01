@@ -2,7 +2,10 @@
 __pycache__/
 *.pyc
 .DS_Store
-vector_store/
+vector_db/
+data/raw/
+data/processed/
+chunk_strategy_report.json
 db.sqlite3
 
 # Logs

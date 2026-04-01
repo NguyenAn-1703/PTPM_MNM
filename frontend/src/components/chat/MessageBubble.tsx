@@ -122,6 +122,28 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, ex
                                 Follow-up rewritten
                             </span>
                         )}
+                        {!isUser && typeof message.confidenceScore === "number" && (
+                            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-emerald-700 dark:border-emerald-500/45 dark:bg-emerald-500/12 dark:text-emerald-300">
+                                    Confidence: {(message.confidenceScore * 100).toFixed(0)}% ({message.confidenceLabel || "n/a"})
+                                </span>
+                                {message.retrievalMode && (
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-sky-700 dark:border-sky-500/45 dark:bg-sky-500/12 dark:text-sky-300">
+                                        Retrieval: {message.retrievalMode}
+                                    </span>
+                                )}
+                                {message.selfRagApplied && (
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-amber-700 dark:border-amber-500/45 dark:bg-amber-500/12 dark:text-amber-300">
+                                        Self-RAG retry
+                                    </span>
+                                )}
+                                {message.rerankerModel && (
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:border-slate-500/45 dark:bg-slate-500/12 dark:text-slate-300">
+                                        Rerank: {message.rerankerModel}
+                                    </span>
+                                )}
+                            </div>
+                        )}
                         <p className="whitespace-pre-wrap">{message.content}</p>
                     </div>
 

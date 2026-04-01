@@ -11,7 +11,17 @@ export type { Message } from "./chat/types";
 interface ChatInterfaceProps {
     messages: Message[];
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
-    onSendMessage: (message: string, history: ChatHistoryMessage[]) => Promise<{ answer: string; contexts: Context[]; standaloneQuestion?: string; isFollowUpRewrite?: boolean }>;
+    onSendMessage: (message: string, history: ChatHistoryMessage[]) => Promise<{
+        answer: string;
+        contexts: Context[];
+        standaloneQuestion?: string;
+        isFollowUpRewrite?: boolean;
+        confidenceScore?: number;
+        confidenceLabel?: "low" | "medium" | "high";
+        retrievalMode?: "vector" | "hybrid";
+        selfRagApplied?: boolean;
+        rerankerModel?: string | null;
+    }>;
     isLoading: boolean;
     historyLimit: number;
 }
@@ -60,6 +70,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessa
                 contexts: response.contexts,
                 standaloneQuestion: response.standaloneQuestion,
                 isFollowUpRewrite: response.isFollowUpRewrite,
+                confidenceScore: response.confidenceScore,
+                confidenceLabel: response.confidenceLabel,
+                retrievalMode: response.retrievalMode,
+                selfRagApplied: response.selfRagApplied,
+                rerankerModel: response.rerankerModel,
                 timestamp: Date.now(),
             };
 

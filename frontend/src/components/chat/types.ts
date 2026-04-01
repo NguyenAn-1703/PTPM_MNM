@@ -9,6 +9,11 @@ export interface Message {
     contexts?: Context[];
     standaloneQuestion?: string;
     isFollowUpRewrite?: boolean;
+    confidenceScore?: number;
+    confidenceLabel?: "low" | "medium" | "high";
+    retrievalMode?: "vector" | "hybrid";
+    selfRagApplied?: boolean;
+    rerankerModel?: string | null;
     timestamp: number;
 }
 

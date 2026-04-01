@@ -40,6 +40,10 @@ function App() {
     const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
     const [chunkSize, setChunkSize] = useState(1000);
     const [chunkOverlap, setChunkOverlap] = useState(100);
+    const [retrievalMode, setRetrievalMode] = useState<"vector" | "hybrid">("hybrid");
+    const [useReranker, setUseReranker] = useState(true);
+    const [useSelfRag, setUseSelfRag] = useState(true);
+    const [selectedFilenameFilter, setSelectedFilenameFilter] = useState<string>("all");
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const historyLimit = status?.history_max_messages || 7;
 
@@ -141,7 +145,7 @@ function App() {
         setTimeout(() => setNotification(null), 5000);
     };
 
-    const handleUpload = async (file: File, options: { chunkSize: number; chunkOverlap: number }) => {
+    const handleUpload = async (files: File[], options: { chunkSize: number; chunkOverlap: number }) => {
         if (options.chunkOverlap >= options.chunkSize) {
             showNotification("error", "Chunk overlap phải nhỏ hơn chunk size");
             return;
@@ -149,11 +153,12 @@ function App() {
 
         setIsUploading(true);
         try {
-            const res = await api.uploadFile(file, options);
+            const res = await api.uploadFiles(files, options);
             if (res.success) {
                 showNotification("success", res.message);
-                setUploadedFiles((prev) => [...prev, res.filename]);
-                setDocumentCount((prev) => prev + res.chunks_added);
+                const newFiles = res.processed_files?.map((item) => item.filename) || [res.filename];
+                setUploadedFiles((prev) => Array.from(new Set([...prev, ...newFiles])));
+                setDocumentCount((prev) => prev + (res.total_chunks_added || res.chunks_added));
                 await fetchStatus();
             } else {
                 showNotification("error", res.error || "Upload thất bại");
@@ -165,16 +170,26 @@ function App() {
         }
     };
 
-    const handleChat = useCallback(async (message: string, history: { role: "user" | "assistant"; content: string }[]): Promise<{ answer: string; contexts: Context[]; standaloneQuestion?: string; isFollowUpRewrite?: boolean }> => {
+    const handleChat = useCallback(async (message: string, history: { role: "user" | "assistant"; content: string }[]): Promise<{ answer: string; contexts: Context[]; standaloneQuestion?: string; isFollowUpRewrite?: boolean; confidenceScore?: number; confidenceLabel?: "low" | "medium" | "high"; retrievalMode?: "vector" | "hybrid"; selfRagApplied?: boolean; rerankerModel?: string | null }> => {
         setIsChatLoading(true);
         try {
-            const res = await api.chat(message, history, activeSessionId);
+            const res = await api.chat(message, history, activeSessionId, {
+                retrievalMode,
+                filenames: selectedFilenameFilter !== "all" ? [selectedFilenameFilter] : [],
+                useReranker,
+                useSelfRag,
+            });
             if (res.success) {
                 return {
                     answer: res.answer,
                     contexts: res.contexts,
                     standaloneQuestion: res.standalone_question,
                     isFollowUpRewrite: Boolean(res.rewritten),
+                    confidenceScore: res.confidence_score,
+                    confidenceLabel: res.confidence_label,
+                    retrievalMode: res.retrieval_mode,
+                    selfRagApplied: res.self_rag_applied,
+                    rerankerModel: res.reranker?.model || null,
                 };
             }
             return { answer: res.error || "Đã xảy ra lỗi", contexts: [] };
@@ -183,7 +198,7 @@ function App() {
         } finally {
             setIsChatLoading(false);
         }
-    }, [activeSessionId]);
+    }, [activeSessionId, retrievalMode, selectedFilenameFilter, useReranker, useSelfRag]);
 
     const handleResetSessionContext = async () => {
         if (!activeSessionId) return;
@@ -222,6 +237,7 @@ function App() {
                 showNotification("success", "Đã xóa toàn bộ tài liệu");
                 setDocumentCount(0);
                 setUploadedFiles([]);
+                setSelectedFilenameFilter("all");
                 await fetchStatus();
             } else {
                 showNotification("error", res.error || "Xóa thất bại");
@@ -394,11 +410,20 @@ function App() {
                         isOpen={isSettingsOpen}
                         chunkSize={chunkSize}
                         chunkOverlap={chunkOverlap}
+                        retrievalMode={retrievalMode}
+                        useReranker={useReranker}
+                        useSelfRag={useSelfRag}
                         onClose={() => setIsSettingsOpen(false)}
                         onApply={(settings) => {
                             setChunkSize(settings.chunkSize);
                             setChunkOverlap(settings.chunkOverlap);
-                            showNotification("success", `Đã cập nhật chunk: size ${settings.chunkSize}, overlap ${settings.chunkOverlap}`);
+                            setRetrievalMode(settings.retrievalMode);
+                            setUseReranker(settings.useReranker);
+                            setUseSelfRag(settings.useSelfRag);
+                            showNotification(
+                                "success",
+                                `Đã cập nhật: chunk ${settings.chunkSize}/${settings.chunkOverlap}, retrieval ${settings.retrievalMode}, rerank ${settings.useReranker ? "on" : "off"}, self-rag ${settings.useSelfRag ? "on" : "off"}`,
+                            );
                         }}
                     />
 
@@ -446,6 +471,21 @@ function App() {
                             <div className="border-b border-slate-200/70 px-3 py-3 dark:border-slate-700/70 md:px-6">
                                 <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2">
                                     <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Tài liệu</span>
+                                    <label className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                        <span>Lọc theo file:</span>
+                                        <select
+                                            value={selectedFilenameFilter}
+                                            onChange={(e) => setSelectedFilenameFilter(e.target.value)}
+                                            className="max-w-[180px] bg-transparent text-[11px] outline-none"
+                                        >
+                                            <option value="all">Tất cả</option>
+                                            {uploadedFiles.map((file) => (
+                                                <option key={file} value={file}>
+                                                    {file}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
                                     {uploadedFiles.map((file, idx) => (
                                         <span
                                             key={idx}
