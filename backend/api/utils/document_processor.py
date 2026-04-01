@@ -3,7 +3,7 @@ Document Processor Module
 Xử lý các loại tài liệu: PDF, Word, Image (OCR)
 """
 import os
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from pypdf import PdfReader
 from docx import Document
 from PIL import Image
@@ -30,6 +30,37 @@ def extract_text_from_pdf(file_path: str) -> str:
         return "\n\n".join(text_parts)
     except Exception as e:
         raise Exception(f"Lỗi khi đọc PDF: {str(e)}")
+
+
+def extract_pdf_pages(file_path: str) -> List[Dict[str, Any]]:
+    """Extract PDF page text with page number and global character offsets."""
+    try:
+        reader = PdfReader(file_path)
+        pages: List[Dict[str, Any]] = []
+        cursor = 0
+
+        for page_index, page in enumerate(reader.pages):
+            page_text = (page.extract_text() or "").strip()
+            if not page_text:
+                continue
+
+            start = cursor
+            end = start + len(page_text)
+            pages.append(
+                {
+                    "page_number": page_index + 1,
+                    "text": page_text,
+                    "char_start": start,
+                    "char_end": end,
+                }
+            )
+
+            # Keep spacing equivalent to join("\n\n") in extract_text_from_pdf.
+            cursor = end + 2
+
+        return pages
+    except Exception as e:
+        raise Exception(f"Lỗi khi đọc PDF theo trang: {str(e)}")
 
 
 def extract_text_from_docx(file_path: str) -> str:

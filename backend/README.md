@@ -46,9 +46,50 @@ python manage.py runserver
  Endpoint	    Method	        Mô tả
 /api/upload/	POST	        Upload file PDF/Word/Image
 /api/chat/	    POST	        Chat với RAG
+/api/chat/memory/clear/	POST	Reset memory theo session_id
 /api/status/	GET	            Kiểm tra trạng thái
 /api/clear/	    DELETE	        Xóa vector store
 /api/chunk-strategy/evaluate/	POST	Đánh giá các tổ hợp chunk_size/chunk_overlap
+```
+
+`POST /api/chat/` hiện trả về `contexts[]` kèm citation/source tracking:
+
+- `source_location.page_start/page_end`: số trang nguồn (nếu là PDF)
+- `source_location.char_start/char_end`: vị trí ký tự trong tài liệu gốc
+- `highlights[]`: các đoạn văn trong context được dùng để tạo câu trả lời
+
+`POST /api/chat/` hỗ trợ conversational memory theo phiên hội thoại:
+
+- Request body:
+	- `question` (string, bắt buộc)
+	- `history` (array optional, gồm các item `{ role: "user" | "assistant", content: string }`)
+	- `session_id` (string optional, nên gửi theo từng cuộc hội thoại để backend theo dõi ngữ cảnh)
+- Response bổ sung:
+	- `session_id`: id phiên backend đã dùng để lưu memory
+	- `standalone_question`: câu hỏi follow-up đã được chuẩn hóa thành câu hỏi độc lập trước khi retrieve
+	- `rewritten`: `true/false`, cho biết câu hỏi hiện tại có được rewrite từ follow-up hay không
+
+Ví dụ:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/ \
+	-H "Content-Type: application/json" \
+	-d '{
+		"question": "Còn phần deadline thì sao?",
+		"session_id": "chat-1711960000",
+		"history": [
+			{"role": "user", "content": "Tóm tắt mục tiêu dự án"},
+			{"role": "assistant", "content": "..."}
+		]
+	}'
+```
+
+Reset memory theo session:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/memory/clear/ \
+	-H "Content-Type: application/json" \
+	-d '{"session_id": "chat-1711960000"}'
 ```
 
 ## 8. Upload với chunk parameters tùy chỉnh

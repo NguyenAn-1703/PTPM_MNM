@@ -73,8 +73,11 @@ Hệ thống cho phép điều chỉnh các tham số cấu hình nhanh chóng g
 | Chunk overlap | 150 chars (mặc định, có thể tùy chỉnh khi upload) | Khoảng đệm giữ lại giữa các chunk liên tiếp |
 | Top-K retrieval | 3 | Trả về 3 ngữ cảnh chính xác nhất hỗ trợ câu hỏi |
 | Max chat history | 7 messages | Bộ nhớ Contextual hạn chế ghi nhớ lịch sử cuộc hội thoại |
+| Session memory TTL | 6 giờ | Backend lưu memory theo `session_id` để xử lý follow-up questions ổn định hơn |
 
 API đánh giá chunk strategy hỗ trợ benchmark các tổ hợp `chunk_size/chunk_overlap` và trả report `retrieval_accuracy` tại endpoint `POST /api/chunk-strategy/evaluate/`.
+
+`POST /api/chat/` hỗ trợ conversational RAG: có thể gửi `session_id` để backend theo dõi ngữ cảnh theo từng cuộc hội thoại, đồng thời trả về `standalone_question` (câu hỏi follow-up đã được rewrite thành câu độc lập trước khi retrieval). Để reset ngữ cảnh một phiên ngay trên UI, backend cung cấp thêm endpoint `POST /api/chat/memory/clear/`.
 
 ---
 

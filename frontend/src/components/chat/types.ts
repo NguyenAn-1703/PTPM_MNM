@@ -7,6 +7,8 @@ export interface Message {
     role: MessageRole;
     content: string;
     contexts?: Context[];
+    standaloneQuestion?: string;
+    isFollowUpRewrite?: boolean;
     timestamp: number;
 }
 

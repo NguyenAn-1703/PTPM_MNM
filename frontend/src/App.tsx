@@ -165,12 +165,17 @@ function App() {
         }
     };
 
-    const handleChat = useCallback(async (message: string, history: { role: "user" | "assistant"; content: string }[]): Promise<{ answer: string; contexts: Context[] }> => {
+    const handleChat = useCallback(async (message: string, history: { role: "user" | "assistant"; content: string }[]): Promise<{ answer: string; contexts: Context[]; standaloneQuestion?: string; isFollowUpRewrite?: boolean }> => {
         setIsChatLoading(true);
         try {
-            const res = await api.chat(message, history);
+            const res = await api.chat(message, history, activeSessionId);
             if (res.success) {
-                return { answer: res.answer, contexts: res.contexts };
+                return {
+                    answer: res.answer,
+                    contexts: res.contexts,
+                    standaloneQuestion: res.standalone_question,
+                    isFollowUpRewrite: Boolean(res.rewritten),
+                };
             }
             return { answer: res.error || "Đã xảy ra lỗi", contexts: [] };
         } catch {
@@ -178,7 +183,36 @@ function App() {
         } finally {
             setIsChatLoading(false);
         }
-    }, []);
+    }, [activeSessionId]);
+
+    const handleResetSessionContext = async () => {
+        if (!activeSessionId) return;
+        if (!confirm("Bạn có chắc muốn reset ngữ cảnh của phiên chat hiện tại?")) return;
+
+        try {
+            const res = await api.clearSessionMemory(activeSessionId);
+            if (!res.success) {
+                showNotification("error", res.error || "Reset ngữ cảnh thất bại");
+                return;
+            }
+
+            setMessages([]);
+            setChatSessions((prev) =>
+                prev.map((session) =>
+                    session.id === activeSessionId
+                        ? {
+                              ...session,
+                              messages: [],
+                              updatedAt: Date.now(),
+                          }
+                        : session,
+                ),
+            );
+            showNotification("success", "Đã reset ngữ cảnh phiên hiện tại");
+        } catch {
+            showNotification("error", "Lỗi khi reset ngữ cảnh phiên chat");
+        }
+    };
 
     const handleClearVectorStore = async () => {
         if (!confirm("Bạn có chắc muốn xóa tất cả tài liệu đã upload?")) return;
@@ -197,15 +231,32 @@ function App() {
         }
     };
 
-    const handleClearHistory = () => {
+    const resetSessionMemories = useCallback(async (sessionIds: string[]): Promise<number> => {
+        const uniqueSessionIds = Array.from(new Set(sessionIds.filter(Boolean)));
+        if (uniqueSessionIds.length === 0) {
+            return 0;
+        }
+
+        const results = await Promise.allSettled(uniqueSessionIds.map((sessionId) => api.clearSessionMemory(sessionId)));
+        return results.filter((result) => result.status === "rejected").length;
+    }, []);
+
+    const handleClearHistory = async () => {
         if (!confirm("Bạn có chắc muốn xóa toàn bộ lịch sử chat?")) return;
+        const failedResetCount = await resetSessionMemories(chatSessions.map((session) => session.id));
+
         const freshSession = createEmptySession();
         setChatSessions([freshSession]);
         setActiveSessionId(freshSession.id);
         setMessages([]);
         sessionStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify([freshSession]));
         sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, freshSession.id);
-        showNotification("success", "Đã xóa lịch sử chat");
+        if (failedResetCount > 0) {
+            showNotification("error", `Đã xóa lịch sử chat, nhưng có ${failedResetCount} session chưa reset được trên backend`);
+            return;
+        }
+
+        showNotification("success", "Đã xóa lịch sử chat và reset memory backend");
     };
 
     const handleNewChat = () => {
@@ -225,11 +276,13 @@ function App() {
         setMobileSidebarOpen(false);
     };
 
-    const handleDeleteSession = (sessionId: string) => {
+    const handleDeleteSession = async (sessionId: string) => {
         const targetSession = chatSessions.find((session) => session.id === sessionId);
         if (!targetSession) return;
 
         if (!confirm("Bạn có chắc muốn xóa đoạn chat này?")) return;
+
+        const failedResetCount = await resetSessionMemories([sessionId]);
 
         const remainingSessions = chatSessions.filter((session) => session.id !== sessionId);
 
@@ -238,7 +291,12 @@ function App() {
             setChatSessions([newSession]);
             setActiveSessionId(newSession.id);
             setMessages([]);
-            showNotification("success", "Đã xóa đoạn chat");
+            if (failedResetCount > 0) {
+                showNotification("error", "Đã xóa đoạn chat, nhưng backend chưa reset memory session này");
+                return;
+            }
+
+            showNotification("success", "Đã xóa đoạn chat và reset memory backend");
             return;
         }
 
@@ -250,7 +308,12 @@ function App() {
             setMessages(nextSession.messages);
         }
 
-        showNotification("success", "Đã xóa đoạn chat");
+        if (failedResetCount > 0) {
+            showNotification("error", "Đã xóa đoạn chat, nhưng backend chưa reset memory session này");
+            return;
+        }
+
+        showNotification("success", "Đã xóa đoạn chat và reset memory backend");
     };
 
     return (
@@ -266,6 +329,7 @@ function App() {
                 activeSessionId={activeSessionId}
                 onClearVectorStore={handleClearVectorStore}
                 onClearHistory={handleClearHistory}
+                onResetSessionContext={handleResetSessionContext}
                 onNewChat={handleNewChat}
                 onSelectSession={handleSelectSession}
                 onDeleteSession={handleDeleteSession}

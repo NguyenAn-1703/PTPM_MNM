@@ -6,10 +6,12 @@ import { MessageBubble } from "./chat/MessageBubble";
 import { WelcomeMessage } from "./chat/WelcomeMessage";
 import type { ChatHistoryMessage, Message } from "./chat/types";
 
+export type { Message } from "./chat/types";
+
 interface ChatInterfaceProps {
     messages: Message[];
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
-    onSendMessage: (message: string, history: ChatHistoryMessage[]) => Promise<{ answer: string; contexts: Context[] }>;
+    onSendMessage: (message: string, history: ChatHistoryMessage[]) => Promise<{ answer: string; contexts: Context[]; standaloneQuestion?: string; isFollowUpRewrite?: boolean }>;
     isLoading: boolean;
     historyLimit: number;
 }
@@ -56,6 +58,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessa
                 role: "assistant",
                 content: response.answer,
                 contexts: response.contexts,
+                standaloneQuestion: response.standaloneQuestion,
+                isFollowUpRewrite: response.isFollowUpRewrite,
                 timestamp: Date.now(),
             };
 

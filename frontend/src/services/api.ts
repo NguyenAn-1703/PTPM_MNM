@@ -19,7 +19,21 @@ export interface Context {
         file_type?: string;
         chunk_index?: number;
         total_chunks?: number;
+        page_number?: number;
+        char_start?: number;
+        char_end?: number;
     };
+    source_location?: {
+        page_start?: number;
+        page_end?: number;
+        char_start?: number;
+        char_end?: number;
+    };
+    highlights?: Array<{
+        text: string;
+        start: number;
+        end: number;
+    }>;
     score: number;
 }
 
@@ -34,6 +48,17 @@ export interface ChatResponse {
     answer: string;
     contexts: Context[];
     has_context: boolean;
+    session_id?: string;
+    standalone_question?: string;
+    rewritten?: boolean;
+    error?: string;
+}
+
+export interface ClearSessionMemoryResponse {
+    success: boolean;
+    session_id: string;
+    cleared: boolean;
+    message: string;
     error?: string;
 }
 
@@ -110,13 +135,13 @@ export const api = {
         return response.json();
     },
 
-    async chat(question: string, history: ChatHistoryMessage[] = []): Promise<ChatResponse> {
+    async chat(question: string, history: ChatHistoryMessage[] = [], sessionId?: string): Promise<ChatResponse> {
         const response = await fetch(`${API_BASE_URL}/chat/`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify({ question, history }),
+            body: JSON.stringify({ question, history, session_id: sessionId }),
         });
 
         return response.json();
@@ -131,6 +156,18 @@ export const api = {
         const response = await fetch(`${API_BASE_URL}/clear/`, {
             method: "DELETE",
         });
+        return response.json();
+    },
+
+    async clearSessionMemory(sessionId: string): Promise<ClearSessionMemoryResponse> {
+        const response = await fetch(`${API_BASE_URL}/chat/memory/clear/`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ session_id: sessionId }),
+        });
+
         return response.json();
     },
 

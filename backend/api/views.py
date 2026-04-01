@@ -41,7 +41,7 @@ class UploadDocumentView(APIView):
     IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'bmp', 'tiff']
     
     def post(self, request):
-        from .utils.document_processor import process_document, get_file_extension
+        from .utils.document_processor import process_document, get_file_extension, extract_pdf_pages
 
         if 'file' not in request.FILES:
             return Response(
@@ -85,6 +85,10 @@ class UploadDocumentView(APIView):
             
             # Extract text from document
             text = process_document(tmp_path, file_ext)
+            source_segments = None
+
+            if file_ext == 'pdf':
+                source_segments = extract_pdf_pages(tmp_path)
             
             if not text.strip():
                 error_message = "Không thể trích xuất text từ tài liệu. File có thể rỗng hoặc không có nội dung chữ."
@@ -108,6 +112,7 @@ class UploadDocumentView(APIView):
                 },
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
+                source_segments=source_segments,
             )
             
             # Cleanup temp file
@@ -144,32 +149,123 @@ class ChatView(APIView):
     POST /api/chat/
     """
     parser_classes = [JSONParser]
+
+    @staticmethod
+    def _parse_history(history_raw):
+        if history_raw in (None, ""):
+            return []
+
+        if not isinstance(history_raw, list):
+            raise ValueError("history phải là danh sách")
+
+        parsed = []
+        for idx, item in enumerate(history_raw):
+            if not isinstance(item, dict):
+                raise ValueError(f"history[{idx}] không hợp lệ")
+
+            role = str(item.get("role", "")).strip().lower()
+            content = str(item.get("content", "")).strip()
+
+            if role not in {"user", "assistant"}:
+                raise ValueError(f"history[{idx}].role phải là user hoặc assistant")
+            if not content:
+                raise ValueError(f"history[{idx}].content không được để trống")
+
+            parsed.append({"role": role, "content": content})
+
+        return parsed
+
+    @staticmethod
+    def _parse_session_id(session_id_raw):
+        if session_id_raw in (None, ""):
+            return None
+
+        session_id = str(session_id_raw).strip()
+        if len(session_id) > 128:
+            raise ValueError("session_id không được dài quá 128 ký tự")
+
+        return session_id
     
     def post(self, request):
         question = request.data.get('question', '').strip()
-        history = request.data.get('history', [])
+        history_raw = request.data.get('history', [])
+        session_id_raw = request.data.get('session_id')
         
         if not question:
             return Response(
                 {"error": "Câu hỏi không được để trống"},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        try:
+            history = self._parse_history(history_raw)
+            session_id = self._parse_session_id(session_id_raw)
+        except ValueError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         try:
             rag_engine = _get_rag_engine()
-            result = rag_engine.chat(question, history=history)
+            result = rag_engine.chat(question, history=history, session_id=session_id)
             
             return Response({
                 "success": True,
                 "question": question,
                 "answer": result["answer"],
                 "contexts": result["contexts"],
-                "has_context": result["has_context"]
+                "has_context": result["has_context"],
+                "session_id": result.get("session_id"),
+                "standalone_question": result.get("standalone_question", question),
+                "rewritten": bool(result.get("rewritten", False)),
             })
             
         except Exception as e:
             return Response(
                 {"error": f"Lỗi xử lý câu hỏi: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ClearSessionMemoryView(APIView):
+    """
+    API endpoint để xóa memory hội thoại theo session_id
+    POST /api/chat/memory/clear/
+    """
+
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+        session_id_raw = request.data.get('session_id')
+        session_id = str(session_id_raw or '').strip()
+
+        if not session_id:
+            return Response(
+                {"error": "session_id không được để trống"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if len(session_id) > 128:
+            return Response(
+                {"error": "session_id không được dài quá 128 ký tự"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            rag_engine = _get_rag_engine()
+            cleared = rag_engine.clear_session_memory(session_id)
+            return Response(
+                {
+                    "success": True,
+                    "session_id": session_id,
+                    "cleared": cleared,
+                    "message": "Đã reset ngữ cảnh hội thoại cho session" if cleared else "Session chưa có memory để xóa",
+                }
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Lỗi xóa memory hội thoại: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

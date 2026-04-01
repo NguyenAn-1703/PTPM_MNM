@@ -17,6 +17,7 @@ export interface SidebarProps {
     activeSessionId: string;
     onClearVectorStore: () => void;
     onClearHistory: () => void;
+    onResetSessionContext: () => void;
     onNewChat: () => void;
     onSelectSession: (sessionId: string) => void;
     onDeleteSession: (sessionId: string) => void;

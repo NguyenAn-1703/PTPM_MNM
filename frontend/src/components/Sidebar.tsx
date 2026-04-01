@@ -5,7 +5,7 @@ import { SidebarSessionList } from "./sidebar/SidebarSessionList";
 import { SidebarSystemCard } from "./sidebar/SidebarSystemCard";
 import type { SidebarProps } from "./sidebar/types";
 
-export const Sidebar: React.FC<SidebarProps> = ({ status, isLoading, documentCount, messages, chatSessions, activeSessionId, onClearVectorStore, onClearHistory, onNewChat, onSelectSession, onDeleteSession, isMobileOpen, onCloseMobile }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ status, isLoading, documentCount, messages, chatSessions, activeSessionId, onClearVectorStore, onClearHistory, onResetSessionContext, onNewChat, onSelectSession, onDeleteSession, isMobileOpen, onCloseMobile }) => {
     const orderedSessions = [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt);
 
     return (
@@ -33,7 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ status, isLoading, documentCou
                 <SidebarSessionList sessions={orderedSessions} activeSessionId={activeSessionId} onSelectSession={onSelectSession} onDeleteSession={onDeleteSession} />
             </div>
 
-            <SidebarActions hasMessages={messages.length > 0} hasDocuments={documentCount > 0} onClearHistory={onClearHistory} onClearVectorStore={onClearVectorStore} />
+            <SidebarActions hasMessages={messages.length > 0} hasDocuments={documentCount > 0} onClearHistory={onClearHistory} onClearVectorStore={onClearVectorStore} onResetSessionContext={onResetSessionContext} />
         </aside>
     );
 };
