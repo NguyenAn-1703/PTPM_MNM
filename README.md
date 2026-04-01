@@ -69,10 +69,12 @@ Hệ thống cho phép điều chỉnh các tham số cấu hình nhanh chóng g
 |-----------|---------|-------------|
 | `OLLAMA_LLM` | `qwen2.5:7b` | LLM dùng để tự động thiết lập câu trả lời |
 | `EMBEDDING_MODEL` | `nomic-embed-text` | Mô hình vector hóa thông tin dữ liệu thô |
-| Chunk size | 1000 chars | Kích thước khi chia nhỏ định trang văn bản tải lên |
-| Chunk overlap | 150 chars | Khoảng đệm giữ lại giữa các chunk liên tiếp |
+| Chunk size | 1000 chars (mặc định, có thể tùy chỉnh khi upload) | Kích thước khi chia nhỏ định trang văn bản tải lên |
+| Chunk overlap | 150 chars (mặc định, có thể tùy chỉnh khi upload) | Khoảng đệm giữ lại giữa các chunk liên tiếp |
 | Top-K retrieval | 3 | Trả về 3 ngữ cảnh chính xác nhất hỗ trợ câu hỏi |
 | Max chat history | 7 messages | Bộ nhớ Contextual hạn chế ghi nhớ lịch sử cuộc hội thoại |
+
+API đánh giá chunk strategy hỗ trợ benchmark các tổ hợp `chunk_size/chunk_overlap` và trả report `retrieval_accuracy` tại endpoint `POST /api/chunk-strategy/evaluate/`.
 
 ---
 

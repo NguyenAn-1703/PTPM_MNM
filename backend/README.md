@@ -48,4 +48,54 @@ python manage.py runserver
 /api/chat/	    POST	        Chat với RAG
 /api/status/	GET	            Kiểm tra trạng thái
 /api/clear/	    DELETE	        Xóa vector store
+/api/chunk-strategy/evaluate/	POST	Đánh giá các tổ hợp chunk_size/chunk_overlap
 ```
+
+## 8. Upload với chunk parameters tùy chỉnh
+
+`POST /api/upload/` hỗ trợ thêm 2 field form-data:
+
+- `chunk_size` (int > 0)
+- `chunk_overlap` (int >= 0, phải nhỏ hơn `chunk_size`)
+
+Ví dụ:
+
+```bash
+curl -X POST http://localhost:8000/api/upload/ \
+	-F "file=@/path/to/document.pdf" \
+	-F "chunk_size=1500" \
+	-F "chunk_overlap=200"
+```
+
+## 9. Benchmark chunk strategy và xuất report accuracy
+
+Tạo file `evaluation_set.json`:
+
+```json
+[
+	{
+		"question": "Tài liệu nói gì về mục tiêu dự án?",
+		"expected_keywords": ["mục tiêu", "dự án"]
+	},
+	{
+		"question": "Mô hình LLM đang được dùng là gì?",
+		"expected_keywords": ["qwen", "ollama"]
+	}
+]
+```
+
+Chạy script benchmark với 12 tổ hợp mặc định:
+
+```bash
+python test_chunk_strategy.py --evaluation-file evaluation_set.json
+```
+
+Script sẽ thử:
+
+- `chunk_size`: `500, 1000, 1500, 2000`
+- `chunk_overlap`: `50, 100, 200`
+
+và xuất:
+
+- Bảng so sánh `retrieval_accuracy` trên terminal
+- File JSON report (mặc định: `chunk_strategy_report.json`)

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import "./styles/index";
 import { api, type Context, type StatusResponse } from "./services/api";
-import { Sidebar, FileUpload, ChatInterface } from "./components";
+import { Sidebar, FileUpload, ChatInterface, SettingsDialog } from "./components";
 import type { Message } from "./components/ChatInterface";
 
 interface ChatSessionPayload {
@@ -38,6 +38,9 @@ function App() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isSessionReady, setIsSessionReady] = useState(false);
     const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+    const [chunkSize, setChunkSize] = useState(1000);
+    const [chunkOverlap, setChunkOverlap] = useState(100);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const historyLimit = status?.history_max_messages || 7;
 
     // Load all sessions + active session from sessionStorage
@@ -120,6 +123,12 @@ function App() {
             if (res.uploaded_files) {
                 setUploadedFiles(res.uploaded_files);
             }
+            if (res.default_chunk_size) {
+                setChunkSize(res.default_chunk_size);
+            }
+            if (typeof res.default_chunk_overlap === "number") {
+                setChunkOverlap(res.default_chunk_overlap);
+            }
         } catch (error) {
             console.error("Error fetching status:", error);
         } finally {
@@ -132,10 +141,15 @@ function App() {
         setTimeout(() => setNotification(null), 5000);
     };
 
-    const handleUpload = async (file: File) => {
+    const handleUpload = async (file: File, options: { chunkSize: number; chunkOverlap: number }) => {
+        if (options.chunkOverlap >= options.chunkSize) {
+            showNotification("error", "Chunk overlap phải nhỏ hơn chunk size");
+            return;
+        }
+
         setIsUploading(true);
         try {
-            const res = await api.uploadFile(file);
+            const res = await api.uploadFile(file, options);
             if (res.success) {
                 showNotification("success", res.message);
                 setUploadedFiles((prev) => [...prev, res.filename]);
@@ -283,6 +297,15 @@ function App() {
                                 {status?.llm_model || "LLM"}
                             </span>
                             <button
+                                onClick={() => setIsSettingsOpen(true)}
+                                className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:-translate-y-0.5 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                                title="Cài đặt chunk"
+                            >
+                                <span className="material-icons-round" style={{ fontSize: "20px" }}>
+                                    tune
+                                </span>
+                            </button>
+                            <button
                                 onClick={() => setDarkMode(!darkMode)}
                                 className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:-translate-y-0.5 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                                 title="Chuyển đổi giao diện"
@@ -303,6 +326,18 @@ function App() {
                         </div>
                     )}
 
+                    <SettingsDialog
+                        isOpen={isSettingsOpen}
+                        chunkSize={chunkSize}
+                        chunkOverlap={chunkOverlap}
+                        onClose={() => setIsSettingsOpen(false)}
+                        onApply={(settings) => {
+                            setChunkSize(settings.chunkSize);
+                            setChunkOverlap(settings.chunkOverlap);
+                            showNotification("success", `Đã cập nhật chunk: size ${settings.chunkSize}, overlap ${settings.chunkOverlap}`);
+                        }}
+                    />
+
                     {documentCount === 0 ? (
                         <div className="flex flex-1 items-center justify-center overflow-y-auto px-4 py-8 md:px-8">
                             <div className="w-full max-w-3xl rounded-[30px] border border-slate-200/70 bg-white/85 p-6 shadow-xl shadow-slate-900/5 dark:border-slate-700/70 dark:bg-slate-900/70 md:p-8">
@@ -316,7 +351,24 @@ function App() {
                                     <p className="mt-2 text-sm text-slate-500 dark:text-slate-400 md:text-base">Tải file lên để đặt câu hỏi, tóm tắt hoặc truy xuất thông tin theo ngữ cảnh.</p>
                                 </div>
 
-                                <FileUpload onUpload={handleUpload} isUploading={isUploading} />
+                                <FileUpload
+                                    onUpload={handleUpload}
+                                    isUploading={isUploading}
+                                    chunkSize={chunkSize}
+                                    chunkOverlap={chunkOverlap}
+                                />
+
+                                <div className="mt-3 flex justify-center">
+                                    <button
+                                        onClick={() => setIsSettingsOpen(true)}
+                                        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    >
+                                        <span className="material-icons-round" style={{ fontSize: "14px" }}>
+                                            tune
+                                        </span>
+                                        Cài đặt chunk: {chunkSize}/{chunkOverlap}
+                                    </button>
+                                </div>
 
                                 <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
                                     <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 dark:border-slate-700 dark:bg-slate-800">PDF</span>
@@ -341,7 +393,13 @@ function App() {
                                             {file}
                                         </span>
                                     ))}
-                                    <FileUpload onUpload={handleUpload} isUploading={isUploading} compact />
+                                    <FileUpload
+                                        onUpload={handleUpload}
+                                        isUploading={isUploading}
+                                        compact
+                                        chunkSize={chunkSize}
+                                        chunkOverlap={chunkOverlap}
+                                    />
                                 </div>
                             </div>
 

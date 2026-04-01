@@ -3,8 +3,9 @@ RAG Engine Module
 Core logic cho Retrieval-Augmented Generation
 """
 import logging
+import json
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import requests
 
 logging.basicConfig(level=logging.INFO)
@@ -80,6 +81,7 @@ class RAGEngine:
     
     def __init__(self):
         self.vector_store_path = Path(settings.VECTOR_DB_PATH)
+        self.source_registry_path = self.vector_store_path / "source_documents.json"
         self.ollama_base_url = (settings.OLLAMA_BASE_URL or "http://localhost:11434").rstrip("/")
         self.llm_model = settings.OLLAMA_LLM or "qwen2.5:7b"
         self.embedding_model = settings.EMBEDDING_MODEL or "nomic-embed-text"
@@ -114,16 +116,25 @@ class RAGEngine:
         self.history_max_messages = 7
         self.history_max_chars = 2000
 
-    def _split_text(self, text: str) -> List[str]:
+    def _normalize_chunk_params(self, chunk_size: Optional[int], chunk_overlap: Optional[int]) -> Tuple[int, int]:
+        """Validate and normalize chunk parameters before splitting."""
+        size = self.chunk_size if chunk_size is None else int(chunk_size)
+        overlap = self.chunk_overlap if chunk_overlap is None else int(chunk_overlap)
+
+        size = max(1, size)
+        overlap = max(0, overlap)
+        if overlap >= size:
+            overlap = max(0, size // 5)
+
+        return size, overlap
+
+    def _split_text(self, text: str, chunk_size: Optional[int] = None, chunk_overlap: Optional[int] = None) -> List[str]:
         """Split text into overlapping chunks without importing heavy NLP stacks."""
         text = (text or "").strip()
         if not text:
             return []
 
-        size = max(1, int(self.chunk_size))
-        overlap = max(0, int(self.chunk_overlap))
-        if overlap >= size:
-            overlap = max(0, size // 5)
+        size, overlap = self._normalize_chunk_params(chunk_size, chunk_overlap)
 
         step = max(1, size - overlap)
         chunks: List[str] = []
@@ -239,6 +250,37 @@ class RAGEngine:
         except Exception as e:
             print(f"⚠️ Could not load vector store: {e}")
             self.vector_store = None
+
+    def _load_source_documents(self) -> List[Dict[str, Any]]:
+        """Load extracted source documents for chunk strategy evaluation."""
+        if not self.source_registry_path.exists():
+            return []
+
+        try:
+            with self.source_registry_path.open("r", encoding="utf-8") as fp:
+                data = json.load(fp)
+                if isinstance(data, list):
+                    return data
+        except Exception as e:
+            logger.warning("Could not load source registry: %s", e)
+
+        return []
+
+    def _save_source_documents(self, docs: List[Dict[str, Any]]) -> None:
+        self.vector_store_path.mkdir(parents=True, exist_ok=True)
+        with self.source_registry_path.open("w", encoding="utf-8") as fp:
+            json.dump(docs, fp, ensure_ascii=False, indent=2)
+
+    def _persist_source_document(self, text: str, metadata: Optional[Dict[str, Any]]) -> None:
+        """Persist original extracted text so we can re-index with different chunk settings."""
+        docs = self._load_source_documents()
+        docs.append(
+            {
+                "text": text,
+                "metadata": metadata or {},
+            }
+        )
+        self._save_source_documents(docs)
     
     def _save_vector_store(self):
         """Save vector store xuống disk"""
@@ -247,7 +289,13 @@ class RAGEngine:
             self.vector_store.save_local(str(self.vector_store_path))
             print(f"✅ Saved vector store to {self.vector_store_path}")
     
-    def add_documents(self, text: str, metadata: Dict[str, Any] = None) -> int:
+    def add_documents(
+        self,
+        text: str,
+        metadata: Dict[str, Any] = None,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+    ) -> int:
         """
         Thêm tài liệu vào vector store
         
@@ -261,8 +309,14 @@ class RAGEngine:
         if not text.strip():
             raise ValueError("Text rỗng, không thể thêm vào vector store")
         
+        normalized_chunk_size, normalized_chunk_overlap = self._normalize_chunk_params(chunk_size, chunk_overlap)
+
         # Split text thành chunks
-        chunks = self._split_text(text)
+        chunks = self._split_text(
+            text,
+            chunk_size=normalized_chunk_size,
+            chunk_overlap=normalized_chunk_overlap,
+        )
         
         logger.info(f"Processing {len(chunks)} chunks")
         
@@ -275,6 +329,8 @@ class RAGEngine:
             chunk_metadata = {
                 "chunk_index": i,
                 "total_chunks": len(chunks),
+                "chunk_size": normalized_chunk_size,
+                "chunk_overlap": normalized_chunk_overlap,
                 **(metadata or {})
             }
             metadatas.append(chunk_metadata)
@@ -296,8 +352,168 @@ class RAGEngine:
         
         # Save to disk
         self._save_vector_store()
+
+        # Keep original source for later chunk strategy experiments.
+        self._persist_source_document(
+            text=text,
+            metadata={
+                "chunk_size": normalized_chunk_size,
+                "chunk_overlap": normalized_chunk_overlap,
+                **(metadata or {}),
+            },
+        )
         
         return len(chunks)
+
+    def _build_temp_vector_store(self, source_docs: List[Dict[str, Any]], chunk_size: int, chunk_overlap: int):
+        """Create an isolated FAISS vector store for a chunk configuration."""
+        from langchain_community.vectorstores import FAISS
+
+        texts: List[str] = []
+        metadatas: List[Dict[str, Any]] = []
+
+        for doc_idx, doc in enumerate(source_docs):
+            source_text = str(doc.get("text", "")).strip()
+            if not source_text:
+                continue
+
+            base_metadata = doc.get("metadata", {}) or {}
+            chunks = self._split_text(source_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            for chunk_idx, chunk in enumerate(chunks):
+                texts.append(chunk)
+                metadatas.append(
+                    {
+                        "source_doc_index": doc_idx,
+                        "chunk_index": chunk_idx,
+                        "total_chunks": len(chunks),
+                        "chunk_size": chunk_size,
+                        "chunk_overlap": chunk_overlap,
+                        **base_metadata,
+                    }
+                )
+
+        if not texts:
+            return None, 0
+
+        temp_store = FAISS.from_texts(
+            texts=texts,
+            embedding=self.embeddings,
+            metadatas=metadatas,
+        )
+        return temp_store, len(texts)
+
+    def evaluate_chunk_strategy(
+        self,
+        evaluation_set: List[Dict[str, Any]],
+        chunk_sizes: List[int],
+        chunk_overlaps: List[int],
+        top_k: int = 3,
+    ) -> Dict[str, Any]:
+        """Evaluate chunk configurations and return retrieval accuracy report."""
+        if not evaluation_set:
+            raise ValueError("evaluation_set không được rỗng")
+
+        source_docs = self._load_source_documents()
+        if not source_docs:
+            raise ValueError("Không có source documents để đánh giá. Hãy upload tài liệu trước.")
+
+        valid_cases: List[Dict[str, Any]] = []
+        for idx, case in enumerate(evaluation_set):
+            question = str(case.get("question", "")).strip()
+            if not question:
+                raise ValueError(f"evaluation_set[{idx}].question không hợp lệ")
+
+            expected_keywords = case.get("expected_keywords") or []
+            if not isinstance(expected_keywords, list):
+                raise ValueError(f"evaluation_set[{idx}].expected_keywords phải là list")
+
+            cleaned_keywords = [str(item).strip().lower() for item in expected_keywords if str(item).strip()]
+            valid_cases.append(
+                {
+                    "question": question,
+                    "expected_keywords": cleaned_keywords,
+                }
+            )
+
+        reports: List[Dict[str, Any]] = []
+        for size in chunk_sizes:
+            for overlap in chunk_overlaps:
+                normalized_size, normalized_overlap = self._normalize_chunk_params(size, overlap)
+                temp_store, generated_chunks = self._build_temp_vector_store(
+                    source_docs=source_docs,
+                    chunk_size=normalized_size,
+                    chunk_overlap=normalized_overlap,
+                )
+
+                if temp_store is None:
+                    continue
+
+                hit_count = 0
+                per_question: List[Dict[str, Any]] = []
+
+                for case in valid_cases:
+                    results = temp_store.similarity_search_with_score(case["question"], k=top_k)
+                    contexts: List[Dict[str, Any]] = []
+                    for doc, score in results:
+                        contexts.append(
+                            {
+                                "content": doc.page_content,
+                                "metadata": doc.metadata,
+                                "score": float(score),
+                            }
+                        )
+
+                    contexts = self._filter_relevant_contexts(contexts)
+                    joined_context = "\n".join([item["content"] for item in contexts]).lower()
+                    expected_keywords = case["expected_keywords"]
+
+                    if expected_keywords:
+                        is_hit = all(keyword in joined_context for keyword in expected_keywords)
+                    else:
+                        is_hit = len(contexts) > 0
+
+                    if is_hit:
+                        hit_count += 1
+
+                    per_question.append(
+                        {
+                            "question": case["question"],
+                            "expected_keywords": expected_keywords,
+                            "retrieved_contexts": len(contexts),
+                            "hit": is_hit,
+                        }
+                    )
+
+                total = len(valid_cases)
+                accuracy = round(hit_count / total, 4) if total else 0.0
+
+                reports.append(
+                    {
+                        "chunk_size": normalized_size,
+                        "chunk_overlap": normalized_overlap,
+                        "retrieval_accuracy": accuracy,
+                        "hits": hit_count,
+                        "total_questions": total,
+                        "generated_chunks": generated_chunks,
+                        "details": per_question,
+                    }
+                )
+
+        sorted_reports = sorted(
+            reports,
+            key=lambda item: (item["retrieval_accuracy"], -item["generated_chunks"]),
+            reverse=True,
+        )
+
+        return {
+            "summary": {
+                "source_documents": len(source_docs),
+                "evaluated_configs": len(sorted_reports),
+                "metric": "retrieval_accuracy",
+            },
+            "best_config": sorted_reports[0] if sorted_reports else None,
+            "reports": sorted_reports,
+        }
     
     def search(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """
@@ -399,15 +615,19 @@ class RAGEngine:
     
     def get_stats(self) -> Dict[str, Any]:
         """Lấy thống kê về vector store"""
+        source_documents = self._load_source_documents()
         stats = {
             "llm_model": self.llm_model,
             "embedding_model": self.embedding_model,
             "vector_db": "FAISS",
             "ollama_url": self.ollama_base_url,
             "history_max_messages": self.history_max_messages,
+            "default_chunk_size": self.chunk_size,
+            "default_chunk_overlap": self.chunk_overlap,
             "has_documents": self.vector_store is not None,
             "document_count": 0,
-            "uploaded_files": []
+            "uploaded_files": [],
+            "source_document_count": len(source_documents),
         }
         
         if self.vector_store:

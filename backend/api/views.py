@@ -15,6 +15,21 @@ def _get_rag_engine():
     return get_rag_engine()
 
 
+def _parse_int(value, field_name: str, min_value: int = 0):
+    if value in (None, ""):
+        return None
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name} phải là số nguyên")
+
+    if parsed < min_value:
+        raise ValueError(f"{field_name} phải >= {min_value}")
+
+    return parsed
+
+
 class UploadDocumentView(APIView):
     """
     API endpoint để upload tài liệu
@@ -37,6 +52,22 @@ class UploadDocumentView(APIView):
         uploaded_file = request.FILES['file']
         filename = uploaded_file.name
         file_ext = get_file_extension(filename)
+        chunk_size_raw = request.data.get('chunk_size')
+        chunk_overlap_raw = request.data.get('chunk_overlap')
+
+        try:
+            chunk_size = _parse_int(chunk_size_raw, 'chunk_size', min_value=1)
+            chunk_overlap = _parse_int(chunk_overlap_raw, 'chunk_overlap', min_value=0)
+            if chunk_size is not None and chunk_overlap is not None and chunk_overlap >= chunk_size:
+                return Response(
+                    {"error": "chunk_overlap phải nhỏ hơn chunk_size"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except ValueError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         # Validate file extension
         if file_ext not in self.ALLOWED_EXTENSIONS:
@@ -74,7 +105,9 @@ class UploadDocumentView(APIView):
                 metadata={
                     "filename": filename,
                     "file_type": file_ext
-                }
+                },
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
             )
             
             # Cleanup temp file
@@ -86,7 +119,9 @@ class UploadDocumentView(APIView):
                 "filename": filename,
                 "file_type": file_ext,
                 "text_length": len(text),
-                "chunks_added": chunks_added
+                "chunks_added": chunks_added,
+                "chunk_size": chunk_size or rag_engine.chunk_size,
+                "chunk_overlap": chunk_overlap or rag_engine.chunk_overlap,
             })
             
         except Exception as e:
@@ -181,3 +216,78 @@ class ClearVectorStoreView(APIView):
                 {"error": f"Lỗi xóa vector store: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class ChunkStrategyEvaluationView(APIView):
+    """
+    API endpoint để đánh giá chunk strategy
+    POST /api/chunk-strategy/evaluate/
+    """
+
+    parser_classes = [JSONParser]
+
+    DEFAULT_CHUNK_SIZES = [500, 1000, 1500, 2000]
+    DEFAULT_CHUNK_OVERLAPS = [50, 100, 200]
+
+    def post(self, request):
+        evaluation_set = request.data.get('evaluation_set', [])
+        chunk_sizes = request.data.get('chunk_sizes', self.DEFAULT_CHUNK_SIZES)
+        chunk_overlaps = request.data.get('chunk_overlaps', self.DEFAULT_CHUNK_OVERLAPS)
+        top_k = request.data.get('top_k', 3)
+
+        if not isinstance(evaluation_set, list) or not evaluation_set:
+            return Response(
+                {"error": "evaluation_set phải là danh sách và không được rỗng"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not isinstance(chunk_sizes, list) or not chunk_sizes:
+            return Response(
+                {"error": "chunk_sizes phải là danh sách không rỗng"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not isinstance(chunk_overlaps, list) or not chunk_overlaps:
+            return Response(
+                {"error": "chunk_overlaps phải là danh sách không rỗng"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            parsed_chunk_sizes = [_parse_int(item, 'chunk_size', min_value=1) for item in chunk_sizes]
+            parsed_chunk_overlaps = [_parse_int(item, 'chunk_overlap', min_value=0) for item in chunk_overlaps]
+            parsed_top_k = _parse_int(top_k, 'top_k', min_value=1)
+        except ValueError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        rag_engine = _get_rag_engine()
+        try:
+            report = rag_engine.evaluate_chunk_strategy(
+                evaluation_set=evaluation_set,
+                chunk_sizes=[item for item in parsed_chunk_sizes if item is not None],
+                chunk_overlaps=[item for item in parsed_chunk_overlaps if item is not None],
+                top_k=parsed_top_k or 3,
+            )
+        except ValueError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as exc:
+            return Response(
+                {"error": f"Lỗi đánh giá chunk strategy: {str(exc)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        return Response(
+            {
+                "success": True,
+                "chunk_sizes": [item for item in parsed_chunk_sizes if item is not None],
+                "chunk_overlaps": [item for item in parsed_chunk_overlaps if item is not None],
+                "top_k": parsed_top_k,
+                **report,
+            }
+        )

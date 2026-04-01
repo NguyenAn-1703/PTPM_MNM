@@ -1,0 +1,10 @@
+[
+  {
+    "question": "Tài liệu nói gì về mục tiêu dự án?",
+    "expected_keywords": ["mục tiêu", "dự án"]
+  },
+  {
+    "question": "Mô hình LLM đang được dùng là gì?",
+    "expected_keywords": ["qwen", "ollama"]
+  }
+]

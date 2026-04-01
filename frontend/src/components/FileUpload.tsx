@@ -1,15 +1,28 @@
 import React, { useState, useCallback } from "react";
 
+const ALLOWED_TYPES = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword", "image/png", "image/jpeg", "image/jpg"];
+
 interface FileUploadProps {
-    onUpload: (file: File) => Promise<void>;
+    onUpload: (file: File, options: { chunkSize: number; chunkOverlap: number }) => Promise<void>;
     isUploading: boolean;
     compact?: boolean;
+    chunkSize: number;
+    chunkOverlap: number;
 }
 
-export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, compact = false }) => {
+export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, compact = false, chunkSize, chunkOverlap }) => {
     const [isDragging, setIsDragging] = useState(false);
 
-    const ALLOWED_TYPES = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword", "image/png", "image/jpeg", "image/jpg"];
+    const handleFile = useCallback(
+        async (file: File) => {
+            if (!ALLOWED_TYPES.includes(file.type) && !file.name.match(/\.(pdf|docx?|png|jpe?g)$/i)) {
+                alert("Chỉ hỗ trợ file PDF, Word, PNG, JPG");
+                return;
+            }
+            await onUpload(file, { chunkSize, chunkOverlap });
+        },
+        [onUpload, chunkSize, chunkOverlap],
+    );
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -21,12 +34,15 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, c
         setIsDragging(false);
     }, []);
 
-    const handleDrop = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-        const files = e.dataTransfer.files;
-        if (files.length > 0) handleFile(files[0]);
-    }, []);
+    const handleDrop = useCallback(
+        (e: React.DragEvent) => {
+            e.preventDefault();
+            setIsDragging(false);
+            const files = e.dataTransfer.files;
+            if (files.length > 0) handleFile(files[0]);
+        },
+        [handleFile],
+    );
 
     const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -34,25 +50,17 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, c
         e.target.value = "";
     };
 
-    const handleFile = async (file: File) => {
-        if (!ALLOWED_TYPES.includes(file.type) && !file.name.match(/\.(pdf|docx?|png|jpe?g)$/i)) {
-            alert("Chỉ hỗ trợ file PDF, Word, PNG, JPG");
-            return;
-        }
-        await onUpload(file);
-    };
-
     // Compact mode: small button only
     if (compact) {
         return (
             <label
                 className={`relative inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-200
-        border-sky-300/70 bg-white text-sky-700 shadow-sm hover:-translate-y-0.5 hover:bg-sky-50
-        dark:border-sky-500/40 dark:bg-slate-900 dark:text-sky-300 dark:hover:bg-slate-800
-        ${isUploading ? "opacity-60 pointer-events-none" : ""}
-      `}
+          border-sky-300/70 bg-white text-sky-700 shadow-sm hover:-translate-y-0.5 hover:bg-sky-50
+          dark:border-sky-500/40 dark:bg-slate-900 dark:text-sky-300 dark:hover:bg-slate-800
+          ${isUploading ? "opacity-60 pointer-events-none" : ""}
+        `}
             >
-                <input type="file" onChange={handleFileInput} accept=".pdf,.docx,.doc,.png,.jpg,.jpeg" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" disabled={isUploading} title="Upload thêm file" />
+                <input type="file" onChange={handleFileInput} accept=".pdf,.docx,.doc,.png,.jpg,.jpeg" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" disabled={isUploading} title="Upload thêm file" />
                 {isUploading ? (
                     <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-sky-500 border-t-transparent" />
                 ) : (
@@ -72,10 +80,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, c
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                className={`
-          relative flex h-64 w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed transition-all duration-300
-          before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_30%_20%,rgba(14,165,233,0.14),transparent_50%),radial-gradient(circle_at_80%_70%,rgba(34,197,94,0.16),transparent_55%)] before:opacity-0 before:transition-opacity before:duration-300
-          flex flex-col items-center justify-center cursor-pointer overflow-hidden
+                className={`relative flex h-64 w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed transition-all duration-300
+                before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_30%_20%,rgba(14,165,233,0.14),transparent_50%),radial-gradient(circle_at_80%_70%,rgba(34,197,94,0.16),transparent_55%)] before:opacity-0 before:transition-opacity before:duration-300   
           ${
               isDragging
                   ? "border-sky-500 bg-sky-50/90 dark:bg-sky-500/10 before:opacity-100"
@@ -112,6 +118,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUpload, isUploading, c
                                 </span>
                             ))}
                         </div>
+                        <p className="mt-5 text-xs text-slate-500 dark:text-slate-400">
+                            Chunk config hiện tại: size {chunkSize}, overlap {chunkOverlap}. Mở Cài đặt để thay đổi.
+                        </p>
                     </>
                 )}
             </div>
