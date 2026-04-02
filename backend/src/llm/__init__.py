@@ -1,7 +1,7 @@
 """RAG package exports.
 
 This module intentionally avoids eager imports to prevent circular import chains
-between src.database <-> src.rag.* during Django startup.
+between src.database <-> src.llm.* during Django startup.
 """
 
 __all__ = ["RAGEngine", "get_rag_engine"]

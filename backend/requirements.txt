@@ -8,19 +8,17 @@ langchain
 langchain-community
 langchain-text-splitters
 
-langchain-chroma
-langchain-ollama
-langchain-huggingface
-
 
 # Vector Database & Xử lý PDF
-chromadb
 faiss-cpu
+qdrant-client
 pypdf
 sentence-transformers
 python-docx
 pytesseract
 Pillow
+ragas
+datasets
 
 
 # Tiện ích

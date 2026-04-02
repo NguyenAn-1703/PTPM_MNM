@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import "./styles/index";
-import { api, type Context, type StatusResponse } from "./services/api";
+import { api, type Context, type RetrievalMode, type StatusResponse } from "./services/api";
 import { Sidebar, FileUpload, ChatInterface, SettingsDialog } from "./components";
 import type { Message } from "./components/ChatInterface";
 
@@ -40,7 +40,7 @@ function App() {
     const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
     const [chunkSize, setChunkSize] = useState(1000);
     const [chunkOverlap, setChunkOverlap] = useState(100);
-    const [retrievalMode, setRetrievalMode] = useState<"vector" | "hybrid">("hybrid");
+    const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("hybrid");
     const [useReranker, setUseReranker] = useState(true);
     const [useSelfRag, setUseSelfRag] = useState(true);
     const [selectedFilenameFilter, setSelectedFilenameFilter] = useState<string>("all");
@@ -172,9 +172,62 @@ function App() {
         }
     };
 
-    const handleChat = useCallback(async (message: string, history: { role: "user" | "assistant"; content: string }[]): Promise<{ answer: string; contexts: Context[]; standaloneQuestion?: string; isFollowUpRewrite?: boolean; confidenceScore?: number; confidenceLabel?: "low" | "medium" | "high"; retrievalMode?: "vector" | "hybrid"; selfRagApplied?: boolean; rerankerModel?: string | null }> => {
+    const handleChat = useCallback(async (
+        message: string,
+        history: { role: "user" | "assistant"; content: string }[],
+        callbacks?: { onToken?: (token: string) => void },
+    ): Promise<{
+        answer: string;
+        contexts: Context[];
+        standaloneQuestion?: string;
+        isFollowUpRewrite?: boolean;
+        confidenceScore?: number;
+        confidenceLabel?: "low" | "medium" | "high";
+        retrievalMode?: RetrievalMode;
+        selfRagApplied?: boolean;
+        rerankerModel?: string | null;
+        traceId?: string;
+        timingsMs?: {
+            retrieve?: number;
+            rerank?: number;
+            generation?: number;
+            evaluation?: number;
+            total?: number;
+        };
+    }> => {
         setIsChatLoading(true);
         try {
+            const streamRes = await api.chatStream(
+                message,
+                history,
+                activeSessionId,
+                {
+                    retrievalMode,
+                    filenames: selectedFilenameFilter !== "all" ? [selectedFilenameFilter] : [],
+                    useReranker,
+                    useSelfRag,
+                },
+                {
+                    onToken: callbacks?.onToken,
+                },
+            );
+
+            if (streamRes.success) {
+                return {
+                    answer: streamRes.answer,
+                    contexts: streamRes.contexts,
+                    standaloneQuestion: streamRes.standalone_question,
+                    isFollowUpRewrite: Boolean(streamRes.rewritten),
+                    confidenceScore: streamRes.confidence_score,
+                    confidenceLabel: streamRes.confidence_label,
+                    retrievalMode: streamRes.retrieval_mode,
+                    selfRagApplied: streamRes.self_rag_applied,
+                    rerankerModel: streamRes.reranker?.model || null,
+                    traceId: streamRes.trace_id,
+                    timingsMs: streamRes.timings_ms,
+                };
+            }
+
             const res = await api.chat(message, history, activeSessionId, {
                 retrievalMode,
                 filenames: selectedFilenameFilter !== "all" ? [selectedFilenameFilter] : [],
@@ -192,6 +245,8 @@ function App() {
                     retrievalMode: res.retrieval_mode,
                     selfRagApplied: res.self_rag_applied,
                     rerankerModel: res.reranker?.model || null,
+                    traceId: res.trace_id,
+                    timingsMs: res.timings_ms,
                 };
             }
             return { answer: res.error || "Đã xảy ra lỗi", contexts: [] };
@@ -253,7 +308,7 @@ function App() {
         const targetFilename = filename.trim();
         if (!targetFilename) return;
 
-        if (!confirm(`Bạn có chắc muốn xóa tài liệu \"${targetFilename}\"?`)) return;
+        if (!confirm(`Bạn có chắc muốn xóa tài liệu "${targetFilename}"?`)) return;
 
         setDeletingFilename(targetFilename);
         try {

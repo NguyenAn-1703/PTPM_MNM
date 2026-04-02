@@ -11,9 +11,18 @@ export interface Message {
     isFollowUpRewrite?: boolean;
     confidenceScore?: number;
     confidenceLabel?: "low" | "medium" | "high";
-    retrievalMode?: "vector" | "hybrid";
+    retrievalMode?: "vector" | "hybrid" | "hybrid_multivector";
     selfRagApplied?: boolean;
     rerankerModel?: string | null;
+    traceId?: string;
+    timingsMs?: {
+        retrieve?: number;
+        rerank?: number;
+        generation?: number;
+        evaluation?: number;
+        total?: number;
+    };
+    isStreaming?: boolean;
     timestamp: number;
 }
 

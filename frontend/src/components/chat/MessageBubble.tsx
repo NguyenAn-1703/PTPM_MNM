@@ -149,6 +149,14 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, ex
                             </div>
                         )}
                         <p className="whitespace-pre-wrap">{message.content}</p>
+                        {!isUser && message.isStreaming && (
+                            <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                <span className="material-icons-round animate-pulse" style={{ fontSize: "12px" }}>
+                                    more_horiz
+                                </span>
+                                Đang stream phản hồi...
+                            </p>
+                        )}
                     </div>
 
                     {!isUser && message.contexts && message.contexts.length > 0 && (

@@ -102,13 +102,15 @@ Base URL: `http://localhost:8000/api`
 | Endpoint | Method | Mô tả | Payload chính |
 |---|---|---|---|
 | `/upload/` | POST | Upload + index tài liệu | `file`/`files`, `chunk_size`, `chunk_overlap` |
-| `/chat/` | POST | Hỏi đáp theo RAG | `question`, `history`, `session_id`, `retrieval_mode`, `filenames`, `file_types`, `use_reranker`, `use_self_rag` |
+| `/chat/` | POST | Hỏi đáp theo RAG | `question`, `history`, `session_id`, `retrieval_mode`, `filenames`, `file_types`, `page_from`, `page_to`, `uploaded_after`, `uploaded_before`, `tags`, `use_reranker`, `use_self_rag` |
+| `/chat/stream/` | POST | Hỏi đáp streaming (SSE) | Payload tương tự `/chat/` |
 | `/chat/memory/clear/` | POST | Reset memory theo session | `session_id` |
 | `/status/` | GET | Kiểm tra trạng thái runtime | None |
 | `/clear/` | DELETE | Xóa toàn bộ vector store | None |
 | `/documents/delete/` | DELETE | Xóa tài liệu theo tên file | `filename` |
 | `/chunk-strategy/evaluate/` | POST | Benchmark chunk strategy | `evaluation_set`, `chunk_sizes`, `chunk_overlaps`, `top_k` |
 | `/retrieval/benchmark/` | POST | Benchmark retrieval mode | `evaluation_set`, `retrieval_modes`, `top_k`, `filenames`, `file_types` |
+| `/self-rag/calibrate/` | POST | Calibrate ngưỡng Self-RAG | `evaluation_set`, `top_k`, `retrieval_mode` |
 
 ---
 
@@ -124,7 +126,23 @@ OLLAMA_LLM=deepseek-r1:7b                              #LLM dùng để generate
 EMBEDDING_MODEL=nomic-embed-text                       #Model embedding  
 CHUNK_SIZE=1000                                        #Chunk size mặc định
 CHUNK_OVERLAP=150                                      #Chunk overlap mặc định
+CHUNKING_STRATEGY=recursive                            #fixed | recursive | semantic
+ENABLE_MULTI_VECTOR=true                               #Index thêm summary/hypo-question vectors
+ENABLE_CONTEXT_REORDER=true                            #Reorder context chống lost-in-the-middle
+ENABLE_CONTEXT_COMPRESSION=true                        #Nén context trước khi generate
+CONTEXT_CANDIDATE_POOL=12                              #Số candidate retrieval trước rerank
+CONTEXT_DEDUPE_JACCARD_THRESHOLD=0.82                  #Ngưỡng loại context trùng
+CONTEXT_COMPRESSION_MAX_CHARS=900                      #Giới hạn context sau nén
+SELF_RAG_CONFIDENCE_THRESHOLD=0.58                     #Ngưỡng trigger self-rag retry
 VECTOR_DB_PATH=./vector_db                             #Nơi lưu FAISS index
+VECTOR_BACKEND=faiss                                   #faiss | qdrant
+ENABLE_QDRANT_DUAL_WRITE=false                         #Dual-write sang Qdrant
+ENABLE_QDRANT_SHADOW_READ=false                        #Shadow-read so sánh kết quả Qdrant
+QDRANT_URL=http://localhost:6333                       #URL Qdrant
+QDRANT_COLLECTION=rag_chunks                           #Collection Qdrant
+ENABLE_RAGAS_IN_CALIBRATION=false                      #Bật metric RAGAS khi calibrate
+PERSIST_CALIBRATION_ARTIFACTS=true                     #Lưu artifact calibrate versioned
+CALIBRATION_ARTIFACT_DIR=./artifacts/self_rag          #Thư mục artifact calibration
 
 # Windows only : TESSERACT_CMD=C:\\Program Files\\Tesseract-OCR\\tesseract.exe
 TESSERACT_CMD=YOUR_TESSERACT_PATH_HERE                 #Path Tesseract (nếu cần chỉ định)

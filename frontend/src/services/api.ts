@@ -1,5 +1,7 @@
 const API_BASE_URL = "http://localhost:8000/api";
 
+export type RetrievalMode = "vector" | "hybrid" | "hybrid_multivector";
+
 export interface UploadResponse {
     success: boolean;
     message: string;
@@ -59,10 +61,15 @@ export interface ChatResponse {
     session_id?: string;
     standalone_question?: string;
     rewritten?: boolean;
-    retrieval_mode?: "vector" | "hybrid";
+    retrieval_mode?: RetrievalMode;
     applied_filters?: {
         filenames?: string[];
         file_types?: string[];
+        tags?: string[];
+        page_from?: number | null;
+        page_to?: number | null;
+        uploaded_after?: string | null;
+        uploaded_before?: string | null;
     };
     reranker?: {
         used: boolean;
@@ -76,7 +83,37 @@ export interface ChatResponse {
         confidence?: number;
         feedback?: string;
     };
+    trace_id?: string;
+    timings_ms?: {
+        retrieve?: number;
+        rerank?: number;
+        generation?: number;
+        evaluation?: number;
+        total?: number;
+    };
     error?: string;
+}
+
+export interface ChatStreamMeta {
+    trace_id?: string;
+    session_id?: string;
+    standalone_question?: string;
+    rewritten?: boolean;
+    retrieval_mode?: RetrievalMode;
+    reranker?: {
+        used?: boolean;
+        model?: string | null;
+    };
+    timings_ms?: {
+        retrieve?: number;
+        rerank?: number;
+    };
+}
+
+export interface ChatStreamHandlers {
+    onMeta?: (meta: ChatStreamMeta) => void;
+    onToken?: (token: string) => void;
+    onDone?: (result: ChatResponse) => void;
 }
 
 export interface ClearSessionMemoryResponse {
@@ -93,6 +130,7 @@ export interface DeleteDocumentResponse {
     filename?: string;
     removed_chunks?: number;
     removed_source_documents?: number;
+    removed_qdrant_points?: number;
     document_count?: number;
     uploaded_files?: string[];
     error?: string;
@@ -104,12 +142,21 @@ export interface StatusResponse {
     llm_model: string;
     embedding_model: string;
     vector_db: string;
+    vector_backend?: "faiss" | "qdrant";
     ollama_url: string;
-    supported_retrieval_modes?: Array<"vector" | "hybrid">;
+    supported_retrieval_modes?: RetrievalMode[];
     cross_encoder_model?: string;
     history_max_messages?: number;
     default_chunk_size?: number;
     default_chunk_overlap?: number;
+    chunking_strategy?: "fixed" | "recursive" | "semantic";
+    multi_vector_enabled?: boolean;
+    context_reorder_enabled?: boolean;
+    context_compression_enabled?: boolean;
+    self_rag_confidence_threshold?: number;
+    qdrant_dual_write_enabled?: boolean;
+    qdrant_shadow_read_enabled?: boolean;
+    qdrant_point_count?: number;
     has_documents: boolean;
     document_count: number;
     source_document_count?: number;
@@ -164,7 +211,7 @@ export interface RetrievalBenchmarkDetail {
 }
 
 export interface RetrievalBenchmarkModeReport {
-    mode: "vector" | "hybrid" | "hybrid_rerank";
+    mode: "vector" | "hybrid" | "hybrid_rerank" | "hybrid_multivector";
     retrieval_accuracy: number;
     hits: number;
     total_questions: number;
@@ -179,6 +226,11 @@ export interface RetrievalBenchmarkResponse {
     applied_filters: {
         filenames: string[];
         file_types: string[];
+        tags?: string[];
+        page_from?: number | null;
+        page_to?: number | null;
+        uploaded_after?: string | null;
+        uploaded_before?: string | null;
     };
     summary: {
         metric: string;
@@ -219,7 +271,7 @@ export const api = {
         history: ChatHistoryMessage[] = [],
         sessionId?: string,
         options?: {
-            retrievalMode?: "vector" | "hybrid";
+            retrievalMode?: RetrievalMode;
             filenames?: string[];
             fileTypes?: string[];
             useReranker?: boolean;
@@ -244,6 +296,147 @@ export const api = {
         });
 
         return response.json();
+    },
+
+    async chatStream(
+        question: string,
+        history: ChatHistoryMessage[] = [],
+        sessionId?: string,
+        options?: {
+            retrievalMode?: RetrievalMode;
+            filenames?: string[];
+            fileTypes?: string[];
+            useReranker?: boolean;
+            useSelfRag?: boolean;
+        },
+        handlers?: ChatStreamHandlers,
+    ): Promise<ChatResponse> {
+        const response = await fetch(`${API_BASE_URL}/chat/stream/`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Accept: "text/event-stream",
+            },
+            body: JSON.stringify({
+                question,
+                history,
+                session_id: sessionId,
+                retrieval_mode: options?.retrievalMode || "hybrid",
+                filenames: options?.filenames || [],
+                file_types: options?.fileTypes || [],
+                use_reranker: options?.useReranker ?? true,
+                use_self_rag: options?.useSelfRag ?? true,
+            }),
+        });
+
+        if (!response.ok) {
+            const payload = (await response.json()) as ChatResponse;
+            throw new Error(payload.error || "Streaming request failed");
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+            throw new Error("Streaming body không khả dụng");
+        }
+
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+        let doneResult: ChatResponse | null = null;
+
+        const processEventBlock = (block: string) => {
+            const lines = block.split("\n");
+            let eventName = "message";
+            const dataLines: string[] = [];
+
+            lines.forEach((line) => {
+                if (line.startsWith("event:")) {
+                    eventName = line.slice(6).trim();
+                    return;
+                }
+                if (line.startsWith("data:")) {
+                    dataLines.push(line.slice(5).trim());
+                }
+            });
+
+            if (dataLines.length === 0) {
+                return;
+            }
+
+            let payload: ChatResponse | ChatStreamMeta | { token?: string; error?: string } = {};
+            try {
+                payload = JSON.parse(dataLines.join("\n")) as typeof payload;
+            } catch {
+                payload = {};
+            }
+
+            if (eventName === "meta") {
+                handlers?.onMeta?.(payload as ChatStreamMeta);
+                return;
+            }
+
+            if (eventName === "token") {
+                const token = String((payload as { token?: string }).token || "");
+                if (token) {
+                    handlers?.onToken?.(token);
+                }
+                return;
+            }
+
+            if (eventName === "error") {
+                throw new Error(String((payload as { error?: string }).error || "Streaming error"));
+            }
+
+            if (eventName === "done") {
+                doneResult = {
+                    success: true,
+                    question,
+                    answer: String((payload as ChatResponse).answer || ""),
+                    contexts: (payload as ChatResponse).contexts || [],
+                    has_context: Boolean((payload as ChatResponse).has_context),
+                    session_id: (payload as ChatResponse).session_id,
+                    standalone_question: (payload as ChatResponse).standalone_question,
+                    rewritten: (payload as ChatResponse).rewritten,
+                    retrieval_mode: (payload as ChatResponse).retrieval_mode,
+                    applied_filters: (payload as ChatResponse).applied_filters,
+                    reranker: (payload as ChatResponse).reranker,
+                    self_rag_applied: (payload as ChatResponse).self_rag_applied,
+                    confidence_score: (payload as ChatResponse).confidence_score,
+                    confidence_label: (payload as ChatResponse).confidence_label,
+                    self_check: (payload as ChatResponse).self_check,
+                    trace_id: (payload as ChatResponse).trace_id,
+                    timings_ms: (payload as ChatResponse).timings_ms,
+                };
+                handlers?.onDone?.(doneResult);
+            }
+        };
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                break;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const chunks = buffer.split("\n\n");
+            buffer = chunks.pop() || "";
+
+            chunks.forEach((block) => {
+                if (!block.trim()) {
+                    return;
+                }
+                processEventBlock(block.trim());
+            });
+        }
+
+        if (buffer.trim()) {
+            processEventBlock(buffer.trim());
+        }
+
+        if (!doneResult) {
+            throw new Error("Không nhận được event done từ server");
+        }
+
+        return doneResult;
     },
 
     async getStatus(): Promise<StatusResponse> {
@@ -301,7 +494,7 @@ export const api = {
     async benchmarkRetrieval(payload: {
         evaluation_set: EvaluationCase[];
         top_k?: number;
-        retrieval_modes?: Array<"vector" | "hybrid" | "hybrid_rerank">;
+        retrieval_modes?: Array<"vector" | "hybrid" | "hybrid_rerank" | "hybrid_multivector">;
         filenames?: string[];
         file_types?: string[];
     }): Promise<RetrievalBenchmarkResponse> {

@@ -11,16 +11,30 @@ export type { Message } from "./chat/types";
 interface ChatInterfaceProps {
     messages: Message[];
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
-    onSendMessage: (message: string, history: ChatHistoryMessage[]) => Promise<{
+    onSendMessage: (
+        message: string,
+        history: ChatHistoryMessage[],
+        callbacks?: {
+            onToken?: (token: string) => void;
+        },
+    ) => Promise<{
         answer: string;
         contexts: Context[];
         standaloneQuestion?: string;
         isFollowUpRewrite?: boolean;
         confidenceScore?: number;
         confidenceLabel?: "low" | "medium" | "high";
-        retrievalMode?: "vector" | "hybrid";
+        retrievalMode?: "vector" | "hybrid" | "hybrid_multivector";
         selfRagApplied?: boolean;
         rerankerModel?: string | null;
+        traceId?: string;
+        timingsMs?: {
+            retrieve?: number;
+            rerank?: number;
+            generation?: number;
+            evaluation?: number;
+            total?: number;
+        };
     }>;
     isLoading: boolean;
     historyLimit: number;
@@ -48,8 +62,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessa
             content: input.trim(),
             timestamp: Date.now(),
         };
+        const assistantMessageId = (Date.now() + 1).toString();
 
-        setMessages((prev) => [...prev, userMessage]);
+        setMessages((prev) => [
+            ...prev,
+            userMessage,
+            {
+                id: assistantMessageId,
+                role: "assistant",
+                content: "",
+                isStreaming: true,
+                timestamp: Date.now(),
+            },
+        ]);
         setInput("");
 
         if (textareaRef.current) {
@@ -62,33 +87,55 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, setMessa
                 .map((msg) => ({ role: msg.role, content: msg.content }))
                 .slice(-historyLimit);
 
-            const response = await onSendMessage(userMessage.content, history);
-            const assistantMessage: Message = {
-                id: (Date.now() + 1).toString(),
-                role: "assistant",
-                content: response.answer,
-                contexts: response.contexts,
-                standaloneQuestion: response.standaloneQuestion,
-                isFollowUpRewrite: response.isFollowUpRewrite,
-                confidenceScore: response.confidenceScore,
-                confidenceLabel: response.confidenceLabel,
-                retrievalMode: response.retrievalMode,
-                selfRagApplied: response.selfRagApplied,
-                rerankerModel: response.rerankerModel,
-                timestamp: Date.now(),
-            };
-
-            setMessages((prev) => [...prev, assistantMessage]);
-        } catch {
-            setMessages((prev) => [
-                ...prev,
-                {
-                    id: (Date.now() + 1).toString(),
-                    role: "assistant",
-                    content: "Đã xảy ra lỗi khi xử lý câu hỏi. Vui lòng thử lại.",
-                    timestamp: Date.now(),
+            const response = await onSendMessage(userMessage.content, history, {
+                onToken: (token: string) => {
+                    setMessages((prev) =>
+                        prev.map((msg) =>
+                            msg.id === assistantMessageId
+                                ? {
+                                      ...msg,
+                                      content: `${msg.content}${token}`,
+                                      isStreaming: true,
+                                  }
+                                : msg,
+                        ),
+                    );
                 },
-            ]);
+            });
+
+            setMessages((prev) =>
+                prev.map((msg) =>
+                    msg.id === assistantMessageId
+                        ? {
+                              ...msg,
+                              content: response.answer || msg.content,
+                              contexts: response.contexts,
+                              standaloneQuestion: response.standaloneQuestion,
+                              isFollowUpRewrite: response.isFollowUpRewrite,
+                              confidenceScore: response.confidenceScore,
+                              confidenceLabel: response.confidenceLabel,
+                              retrievalMode: response.retrievalMode,
+                              selfRagApplied: response.selfRagApplied,
+                              rerankerModel: response.rerankerModel,
+                              traceId: response.traceId,
+                              timingsMs: response.timingsMs,
+                              isStreaming: false,
+                          }
+                        : msg,
+                ),
+            );
+        } catch {
+            setMessages((prev) =>
+                prev.map((msg) =>
+                    msg.id === assistantMessageId
+                        ? {
+                              ...msg,
+                              content: "Đã xảy ra lỗi khi xử lý câu hỏi. Vui lòng thử lại.",
+                              isStreaming: false,
+                          }
+                        : msg,
+                ),
+            );
         }
     };
 

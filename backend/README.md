@@ -256,7 +256,7 @@ RagStorage.save_source_documents()
    _self_evaluate_answer(question, answer, contexts)
    ├─ Prompt: JSON output {"supported": bool, "confidence": 0-1}
    ├─ Parse JSON response
-   └─ if confidence < 0.45 → Trigger Self-RAG
+  └─ if confidence < SELF_RAG_CONFIDENCE_THRESHOLD → Trigger Self-RAG
    ```
 
 9. **Self-RAG Retrieval** (nếu confidence thấp)
@@ -392,17 +392,32 @@ curl -X POST http://localhost:8000/api/upload/ \
 ```
 
 **Parameters:**
-- `retrieval_mode`: "vector" | "hybrid" (default)
+- `retrieval_mode`: "vector" | "hybrid" | "hybrid_multivector" (default: hybrid)
 - `top_k`: Số lượng context chunks (default: 5)
 - `filenames`: Filter theo tên file cụ thể
+- `file_types`: Filter theo loại file
+- `page_from`, `page_to`: Filter theo trang
+- `uploaded_after`, `uploaded_before`: Filter theo thời gian upload (ISO8601)
+- `tags`: Filter theo nhãn metadata
 - `use_reranker`: Enable cross-encoder reranking
 - `use_self_rag`: Enable self-evaluation và auto-requery
+
+---
+
+### 3. Chat Streaming (SSE)
+**POST** `/api/chat/stream/`
+
+Trả về `text/event-stream` với các event:
+- `meta`: thông tin trace, retrieval mode, reranker và timing retrieve/rerank
+- `token`: token từ Ollama theo thời gian thực
+- `done`: payload cuối cùng (answer, contexts, confidence, self_check)
+- `error`: lỗi trong pipeline streaming
 
 **Response:** (xem ví dụ ở phần Chat Flow)
 
 ---
 
-### 3. Clear Session Memory
+### 4. Clear Session Memory
 **POST** `/api/chat/memory/clear/`
 
 ```json
@@ -413,7 +428,7 @@ curl -X POST http://localhost:8000/api/upload/ \
 
 ---
 
-### 4. System Status
+### 5. System Status
 **GET** `/api/status/`
 
 **Response:**
@@ -433,12 +448,12 @@ curl -X POST http://localhost:8000/api/upload/ \
 
 ---
 
-### 5. Clear Vector Store
+### 6. Clear Vector Store
 **DELETE** `/api/clear/`
 
 ---
 
-### 6. Delete Document
+### 7. Delete Document
 **DELETE** `/api/documents/delete/`
 
 ```json
@@ -449,7 +464,7 @@ curl -X POST http://localhost:8000/api/upload/ \
 
 ---
 
-### 7. Evaluate Chunk Strategy
+### 8. Evaluate Chunk Strategy
 **POST** `/api/chunk-strategy/evaluate/`
 
 Đánh giá các tổ hợp chunk size/overlap với bộ câu hỏi.
@@ -460,10 +475,36 @@ python test_chunk_strategy.py --evaluation-file evaluation_set.json
 
 ---
 
-### 8. Retrieval Benchmark
+### 9. Retrieval Benchmark
 **POST** `/api/retrieval/benchmark/`
 
-So sánh retrieval modes (vector, hybrid, hybrid_rerank).
+So sánh retrieval modes (vector, hybrid, hybrid_rerank, hybrid_multivector).
+
+---
+
+### 10. Self-RAG Threshold Calibration
+**POST** `/api/self-rag/calibrate/`
+
+Calibrate ngưỡng `SELF_RAG_CONFIDENCE_THRESHOLD` từ benchmark set:
+
+```json
+{
+  "evaluation_set": [
+    {
+      "question": "...",
+      "expected_keywords": ["..."],
+      "expected_answer": "..."
+    }
+  ],
+  "top_k": 3,
+  "retrieval_mode": "hybrid",
+  "run_ragas": false,
+  "persist_artifact": true
+}
+```
+
+- `run_ragas=true`: chạy thêm metric RAGAS (faithfulness/answer_relevancy/context_precision) nếu đã cài dependencies.
+- `persist_artifact=true`: lưu artifact versioned tại `CALIBRATION_ARTIFACT_DIR`.
 
 ---
 
@@ -551,6 +592,31 @@ EMBEDDING_MODEL=nomic-embed-text
 # Chunking
 CHUNK_SIZE=1000
 CHUNK_OVERLAP=150
+CHUNKING_STRATEGY=recursive
+
+# Retrieval & Context
+ENABLE_MULTI_VECTOR=true
+ENABLE_CONTEXT_REORDER=true
+ENABLE_CONTEXT_COMPRESSION=true
+CONTEXT_CANDIDATE_POOL=12
+CONTEXT_DEDUPE_JACCARD_THRESHOLD=0.82
+CONTEXT_COMPRESSION_MAX_CHARS=900
+
+# Self-RAG
+SELF_RAG_CONFIDENCE_THRESHOLD=0.58
+
+# Vector backend migration
+VECTOR_BACKEND=faiss
+ENABLE_QDRANT_DUAL_WRITE=false
+ENABLE_QDRANT_SHADOW_READ=false
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=
+QDRANT_COLLECTION=rag_chunks
+
+# Calibration artifacts
+ENABLE_RAGAS_IN_CALIBRATION=false
+PERSIST_CALIBRATION_ARTIFACTS=true
+CALIBRATION_ARTIFACT_DIR=./artifacts/self_rag
 
 # Storage
 VECTOR_DB_PATH=./vector_db
@@ -588,6 +654,22 @@ LOGGING = {
 | **EMBEDDING_MODEL** | nomic-embed-text | Model embedding |
 | **CHUNK_SIZE** | 1000 | Độ dài chunk mặc định |
 | **CHUNK_OVERLAP** | 150 | Độ chồng lấn chunk |
+| **CHUNKING_STRATEGY** | recursive | Chiến lược chunking: fixed/recursive/semantic |
+| **ENABLE_MULTI_VECTOR** | true | Bật indexing content + summary + hypothetical query |
+| **ENABLE_CONTEXT_REORDER** | true | Chống Lost-in-the-Middle bằng context reordering |
+| **ENABLE_CONTEXT_COMPRESSION** | true | Bật nén context trước khi generate |
+| **CONTEXT_CANDIDATE_POOL** | 12 | Số lượng candidate context trước rerank |
+| **CONTEXT_DEDUPE_JACCARD_THRESHOLD** | 0.82 | Ngưỡng loại bỏ context trùng lặp |
+| **CONTEXT_COMPRESSION_MAX_CHARS** | 900 | Giới hạn ký tự context sau nén |
+| **SELF_RAG_CONFIDENCE_THRESHOLD** | 0.58 | Ngưỡng kích hoạt Self-RAG retry |
+| **VECTOR_BACKEND** | faiss | Backend retrieval chính: faiss hoặc qdrant |
+| **ENABLE_QDRANT_DUAL_WRITE** | false | Ghi song song sang Qdrant khi vẫn đọc từ FAISS |
+| **ENABLE_QDRANT_SHADOW_READ** | false | Đọc shadow từ Qdrant để so kết quả, chưa cutover |
+| **QDRANT_URL** | http://localhost:6333 | URL Qdrant service |
+| **QDRANT_COLLECTION** | rag_chunks | Collection Qdrant dùng cho chunk vectors |
+| **ENABLE_RAGAS_IN_CALIBRATION** | false | Bật chạy metric RAGAS khi calibrate threshold |
+| **PERSIST_CALIBRATION_ARTIFACTS** | true | Lưu artifact calibrate versioned |
+| **CALIBRATION_ARTIFACT_DIR** | ./artifacts/self_rag | Thư mục artifact calibrate |
 | **VECTOR_DB_PATH** | ./vector_db | Thư mục lưu FAISS |
 | **SESSION_TTL** | 21600 (6h) | Thời gian sống session |
 | **MAX_SESSIONS** | 200 | Max concurrent sessions |
@@ -631,14 +713,6 @@ python test_chunk_strategy.py --evaluation-file evaluation_set.json
 
 ---
 
-### 3. Batch Document Ingestion
-```bash
-python main.py
-```
-Tự động upload tất cả files trong `data/raw/`.
-
----
-
 ## 📦 Dependencies
 
 ### Core Packages
@@ -649,14 +723,16 @@ Tự động upload tất cả files trong `data/raw/`.
 | **django-cors-headers** | CORS handling |
 | **langchain** | RAG framework |
 | **langchain-community** | Community integrations |
-| **langchain-ollama** | Ollama integration |
+| **langchain-text-splitters** | Recursive text chunking |
 | **faiss-cpu** | Vector similarity search |
-| **chromadb** | Alternative vector store |
+| **qdrant-client** | Optional Qdrant backend migration |
 | **pypdf** | PDF text extraction |
 | **python-docx** | DOCX processing |
 | **pytesseract** | OCR wrapper |
 | **Pillow** | Image processing |
 | **sentence-transformers** | Cross-encoder reranking |
+| **ragas** | Optional calibration quality metrics |
+| **datasets** | Dataset format for RAGAS |
 | **python-dotenv** | Environment variables |
 | **requests** | HTTP client |
 

@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.ingestion.document_processor import process_document
-from src.rag.text import normalize_chunk_params, split_text_with_offsets
+from src.llm.text import normalize_chunk_params, split_text_with_offsets
 
 
 def extract_document_text(path: Path) -> str:
@@ -17,6 +17,7 @@ def split_text(
     chunk_size: int,
     chunk_overlap: int,
     base_offset: int = 0,
+    strategy: str = "fixed",
 ) -> List[Dict[str, Any]]:
     normalized_size, normalized_overlap = normalize_chunk_params(
         default_size=chunk_size,
@@ -29,6 +30,7 @@ def split_text(
         chunk_size=normalized_size,
         chunk_overlap=normalized_overlap,
         base_offset=base_offset,
+        strategy=strategy,
     )
 
 

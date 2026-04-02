@@ -11,17 +11,17 @@ interface SettingsDialogProps {
     isOpen: boolean;
     chunkSize: number;
     chunkOverlap: number;
-    retrievalMode: "vector" | "hybrid";
+    retrievalMode: "vector" | "hybrid" | "hybrid_multivector";
     useReranker: boolean;
     useSelfRag: boolean;
     onClose: () => void;
-    onApply: (settings: { chunkSize: number; chunkOverlap: number; retrievalMode: "vector" | "hybrid"; useReranker: boolean; useSelfRag: boolean }) => void;
+    onApply: (settings: { chunkSize: number; chunkOverlap: number; retrievalMode: "vector" | "hybrid" | "hybrid_multivector"; useReranker: boolean; useSelfRag: boolean }) => void;
 }
 
 export const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, chunkSize, chunkOverlap, retrievalMode, useReranker, useSelfRag, onClose, onApply }) => {
     const [draftChunkSize, setDraftChunkSize] = useState(ensureOption(chunkSize, CHUNK_SIZE_OPTIONS, 1000));
     const [draftChunkOverlap, setDraftChunkOverlap] = useState(ensureOption(chunkOverlap, CHUNK_OVERLAP_OPTIONS, 100));
-    const [draftRetrievalMode, setDraftRetrievalMode] = useState<"vector" | "hybrid">(retrievalMode || "hybrid");
+    const [draftRetrievalMode, setDraftRetrievalMode] = useState<"vector" | "hybrid" | "hybrid_multivector">(retrievalMode || "hybrid");
     const [draftUseReranker, setDraftUseReranker] = useState(Boolean(useReranker));
     const [draftUseSelfRag, setDraftUseSelfRag] = useState(Boolean(useSelfRag));
 
@@ -106,10 +106,11 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, chunkSiz
                         Retrieval mode
                         <select
                             value={draftRetrievalMode}
-                            onChange={(e) => setDraftRetrievalMode(e.target.value as "vector" | "hybrid")}
+                            onChange={(e) => setDraftRetrievalMode(e.target.value as "vector" | "hybrid" | "hybrid_multivector")}
                             className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-sky-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                         >
                             <option value="hybrid">Hybrid (Vector + Keyword)</option>
+                            <option value="hybrid_multivector">Hybrid Multi-vector</option>
                             <option value="vector">Vector only</option>
                         </select>
                     </label>

@@ -18,7 +18,12 @@ class RAGEvaluationMixin:
                 continue
 
             base_metadata = doc.get("metadata", {}) or {}
-            chunks = split_text(source_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            chunks = split_text(
+                source_text,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                strategy=getattr(self, "chunking_strategy", "fixed"),
+            )
             for chunk_idx, chunk in enumerate(chunks):
                 texts.append(chunk)
                 metadatas.append(
@@ -172,8 +177,8 @@ class RAGEvaluationMixin:
         if self.vector_store is None:
             raise ValueError("Chưa có dữ liệu vector store để benchmark. Hãy upload tài liệu trước.")
 
-        modes = retrieval_modes or ["vector", "hybrid", "hybrid_rerank"]
-        valid_modes = {"vector", "hybrid", "hybrid_rerank"}
+        modes = retrieval_modes or ["vector", "hybrid", "hybrid_rerank", "hybrid_multivector"]
+        valid_modes = {"vector", "hybrid", "hybrid_rerank", "hybrid_multivector"}
 
         sanitized_modes = []
         for mode in modes:
@@ -214,6 +219,15 @@ class RAGEvaluationMixin:
                     reranker_used = False
                 elif mode == "hybrid":
                     contexts = self._hybrid_search(question, top_k=max(top_k * 2, 6), metadata_filters=metadata_filters)
+                    contexts = contexts[:top_k]
+                    reranker_used = False
+                elif mode == "hybrid_multivector":
+                    original_multi_vector = bool(getattr(self, "enable_multi_vector", False))
+                    self.enable_multi_vector = True
+                    try:
+                        contexts = self._hybrid_search(question, top_k=max(top_k * 2, 6), metadata_filters=metadata_filters)
+                    finally:
+                        self.enable_multi_vector = original_multi_vector
                     contexts = contexts[:top_k]
                     reranker_used = False
                 else:

@@ -11,6 +11,7 @@ from .indexing import RAGIndexingMixin
 from .memory import SessionMemoryStore
 from .retrieval import RAGRetrievalMixin
 from .self_rag import RAGSelfRAGMixin
+from .vector_adapter import QdrantVectorAdapter
 
 
 logger = logging.getLogger(__name__)
@@ -40,9 +41,38 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
 
         self.chunk_size = cfg.chunk_size
         self.chunk_overlap = cfg.chunk_overlap
+        self.chunking_strategy = cfg.chunking_strategy
+        self.enable_multi_vector = cfg.enable_multi_vector
+        self.enable_context_reorder = cfg.enable_context_reorder
+        self.enable_context_compression = cfg.enable_context_compression
+        self.context_candidate_pool = cfg.context_candidate_pool
+        self.context_dedupe_jaccard_threshold = cfg.context_dedupe_jaccard_threshold
+        self.context_compression_max_chars = cfg.context_compression_max_chars
+        self.self_rag_confidence_threshold = cfg.self_rag_confidence_threshold
+        self.vector_backend = cfg.vector_backend
+        self.enable_qdrant_dual_write = cfg.enable_qdrant_dual_write
+        self.enable_qdrant_shadow_read = cfg.enable_qdrant_shadow_read
 
         self.storage = get_storage(self.vector_store_path)
         self.vector_store: Optional[Any] = self.storage.load_vector_store(self.embeddings)
+        qdrant_enabled = (
+            self.vector_backend == "qdrant"
+            or self.enable_qdrant_dual_write
+            or self.enable_qdrant_shadow_read
+        )
+        self.vector_adapter = QdrantVectorAdapter(
+            enabled=qdrant_enabled,
+            url=cfg.qdrant_url,
+            api_key=cfg.qdrant_api_key,
+            collection_name=cfg.qdrant_collection,
+            embeddings=self.embeddings,
+            primary_backend=self.vector_backend,
+            dual_write=self.enable_qdrant_dual_write,
+            shadow_read=self.enable_qdrant_shadow_read,
+        )
+        self.persist_calibration_artifacts = cfg.persist_calibration_artifacts
+        self.enable_ragas_in_calibration = cfg.enable_ragas_in_calibration
+        self.calibration_artifact_dir = cfg.calibration_artifact_dir
 
         self.system_prompt = (
             "Bạn là trợ lý AI trả lời dựa trên ngữ cảnh được cung cấp."
@@ -70,9 +100,13 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
     def _invoke_llm(self, prompt: str) -> str:
         return self._llm_client.generate(prompt=prompt, temperature=0.2)
 
+    def _stream_llm(self, prompt: str):
+        return self._llm_client.generate_stream(prompt=prompt, temperature=0.2)
+
     def clear_vector_store(self):
         self.vector_store = None
         self.storage.clear_vector_store()
+        self.vector_adapter.clear()
 
     def delete_documents_by_filename(self, filename: str) -> Dict[str, Any]:
         cleaned_filename = str(filename).strip()
@@ -80,12 +114,14 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
             raise ValueError("filename không được để trống")
 
         removed_source_documents = self.storage.remove_source_documents_by_filename(cleaned_filename)
+        removed_qdrant_points = self.vector_adapter.delete_by_filename(cleaned_filename)
 
         if self.vector_store is None:
             return {
                 "removed_chunks": 0,
                 "removed_source_documents": removed_source_documents,
-                "document_count": 0,
+                "removed_qdrant_points": removed_qdrant_points,
+                "document_count": self.vector_adapter.count() if self.vector_backend == "qdrant" else 0,
                 "uploaded_files": [],
             }
 
@@ -109,6 +145,7 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
             return {
                 "removed_chunks": len(target_doc_ids),
                 "removed_source_documents": removed_source_documents,
+                "removed_qdrant_points": removed_qdrant_points,
                 "document_count": 0,
                 "uploaded_files": [],
             }
@@ -124,25 +161,40 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
         return {
             "removed_chunks": len(target_doc_ids),
             "removed_source_documents": removed_source_documents,
+            "removed_qdrant_points": removed_qdrant_points,
             "document_count": remaining_documents,
             "uploaded_files": sorted(filenames),
         }
 
     def get_stats(self) -> Dict[str, Any]:
         source_documents = self.storage.load_source_documents()
+        qdrant_count = self.vector_adapter.count() if self.vector_adapter.enabled else 0
+        has_documents = bool(self.vector_store is not None)
+        if self.vector_backend == "qdrant":
+            has_documents = qdrant_count > 0
+
         stats = {
             "llm_model": self.llm_model,
             "embedding_model": self.embedding_model,
-            "vector_db": "FAISS",
+            "vector_db": "Qdrant" if self.vector_backend == "qdrant" else "FAISS",
+            "vector_backend": self.vector_backend,
             "ollama_url": self.ollama_base_url,
-            "supported_retrieval_modes": ["vector", "hybrid"],
+            "supported_retrieval_modes": ["vector", "hybrid", "hybrid_multivector"],
             "cross_encoder_model": self.cross_encoder_model,
             "history_max_messages": self.history_max_messages,
             "memory_session_ttl_seconds": self.session_ttl_seconds,
             "default_chunk_size": self.chunk_size,
             "default_chunk_overlap": self.chunk_overlap,
-            "has_documents": self.vector_store is not None,
-            "document_count": 0,
+            "chunking_strategy": self.chunking_strategy,
+            "multi_vector_enabled": self.enable_multi_vector,
+            "context_reorder_enabled": self.enable_context_reorder,
+            "context_compression_enabled": self.enable_context_compression,
+            "self_rag_confidence_threshold": self.self_rag_confidence_threshold,
+            "qdrant_dual_write_enabled": self.enable_qdrant_dual_write,
+            "qdrant_shadow_read_enabled": self.enable_qdrant_shadow_read,
+            "qdrant_point_count": qdrant_count,
+            "has_documents": has_documents,
+            "document_count": qdrant_count if self.vector_backend == "qdrant" else 0,
             "uploaded_files": [],
             "source_document_count": len(source_documents),
             "active_memory_sessions": self.memory.active_sessions(),
@@ -150,7 +202,8 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
 
         if self.vector_store:
             try:
-                stats["document_count"] = self.vector_store.index.ntotal
+                if self.vector_backend != "qdrant":
+                    stats["document_count"] = self.vector_store.index.ntotal
             except Exception:
                 pass
 

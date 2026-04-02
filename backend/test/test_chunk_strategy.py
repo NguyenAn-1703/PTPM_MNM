@@ -35,11 +35,11 @@ DEFAULT_EVALUATION_FILE = "evaluation_set.json"
 
 
 def _setup_django() -> None:
-    current_dir = Path(__file__).resolve().parent
-    if str(current_dir) not in sys.path:
-        sys.path.insert(0, str(current_dir))
+    backend_root = Path(__file__).resolve().parent.parent
+    if str(backend_root) not in sys.path:
+        sys.path.insert(0, str(backend_root))
 
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "rag_project.settings")
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
     import django
 
@@ -133,7 +133,7 @@ def main() -> None:
 
     _setup_django()
 
-    from src.rag.runtime import get_rag_engine
+    from src.llm.runtime import get_rag_engine
 
     evaluation_set = _load_evaluation_set(evaluation_path)
     rag_engine = get_rag_engine()

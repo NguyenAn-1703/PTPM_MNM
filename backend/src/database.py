@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Any, Optional
 
-from src.rag.storage import RagStorage
+from src.llm.storage import RagStorage
 
 from .config import get_rag_settings
 

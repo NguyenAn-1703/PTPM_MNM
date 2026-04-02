@@ -1,19 +1,42 @@
 """
 API Views for RAG System
 """
+import json
+import logging
 import os
 import tempfile
 from datetime import datetime
 from typing import List
 from django.conf import settings
+from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework import status
+import uuid
+
+
+logger = logging.getLogger(__name__)
+
+
+class ServerSentEventRenderer(BaseRenderer):
+    """Renderer to satisfy DRF content negotiation for SSE endpoints."""
+
+    media_type = "text/event-stream"
+    format = "sse"
+    charset = None
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        if data is None:
+            return b""
+        if isinstance(data, bytes):
+            return data
+        return str(data).encode("utf-8")
 
 
 def _get_rag_engine():
-    from src.rag.runtime import get_rag_engine
+    from src.llm.runtime import get_rag_engine
     return get_rag_engine()
 
 
@@ -65,6 +88,34 @@ def _parse_string_list(value) -> List[str]:
     raise ValueError("Danh sách filter không hợp lệ")
 
 
+def _parse_trace_id(request) -> str:
+    trace_id = str(request.headers.get("X-Trace-Id") or request.data.get("trace_id") or "").strip()
+    if not trace_id:
+        return uuid.uuid4().hex
+    if len(trace_id) > 128:
+        return trace_id[:128]
+    return trace_id
+
+
+def _build_metadata_filters(request_data) -> dict:
+    metadata_filters = {
+        "filenames": _parse_string_list(request_data.get("filenames", [])),
+        "file_types": _parse_string_list(request_data.get("file_types", [])),
+        "tags": _parse_string_list(request_data.get("tags", [])),
+        "uploaded_after": str(request_data.get("uploaded_after", "")).strip() or None,
+        "uploaded_before": str(request_data.get("uploaded_before", "")).strip() or None,
+    }
+
+    page_from = _parse_int(request_data.get("page_from"), "page_from", min_value=1)
+    page_to = _parse_int(request_data.get("page_to"), "page_to", min_value=1)
+    if page_from is not None and page_to is not None and page_to < page_from:
+        raise ValueError("page_to phải >= page_from")
+
+    metadata_filters["page_from"] = page_from
+    metadata_filters["page_to"] = page_to
+    return metadata_filters
+
+
 class UploadDocumentView(APIView):
     """
     API endpoint để upload tài liệu
@@ -77,6 +128,7 @@ class UploadDocumentView(APIView):
 
     def _process_single_file(self, uploaded_file, chunk_size, chunk_overlap):
         from src.ingestion.document_processor import process_document, get_file_extension, extract_pdf_pages
+        from src.ingestion.archive import persist_uploaded_artifacts
 
         filename = uploaded_file.name
         file_ext = get_file_extension(filename)
@@ -102,14 +154,33 @@ class UploadDocumentView(APIView):
                     )
                 raise ValueError(error_message)
 
+            artifact_info = {"raw_file": "", "processed_file": ""}
+            try:
+                artifact_info = persist_uploaded_artifacts(
+                    tmp_path=tmp_path,
+                    original_filename=filename,
+                    extracted_text=text,
+                )
+            except Exception as exc:
+                # Upload/index flow should continue even if archival write fails.
+                logger.warning("Không thể lưu artifact vào data folder cho %s: %s", filename, exc)
+
             rag_engine = _get_rag_engine()
+            uploaded_at = datetime.utcnow()
+            metadata = {
+                "filename": filename,
+                "file_type": file_ext,
+                "uploaded_at": uploaded_at.isoformat() + "Z",
+                "uploaded_at_ts": uploaded_at.timestamp(),
+            }
+            if artifact_info.get("raw_file"):
+                metadata["data_raw_file"] = artifact_info["raw_file"]
+            if artifact_info.get("processed_file"):
+                metadata["data_processed_file"] = artifact_info["processed_file"]
+
             chunks_added = rag_engine.add_documents(
                 text=text,
-                metadata={
-                    "filename": filename,
-                    "file_type": file_ext,
-                    "uploaded_at": datetime.utcnow().isoformat() + "Z",
-                },
+                metadata=metadata,
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
                 source_segments=source_segments,
@@ -120,6 +191,8 @@ class UploadDocumentView(APIView):
                 "file_type": file_ext,
                 "text_length": len(text),
                 "chunks_added": chunks_added,
+                "data_raw_file": artifact_info.get("raw_file"),
+                "data_processed_file": artifact_info.get("processed_file"),
             }
         finally:
             try:
@@ -253,10 +326,9 @@ class ChatView(APIView):
         history_raw = request.data.get('history', [])
         session_id_raw = request.data.get('session_id')
         retrieval_mode_raw = str(request.data.get('retrieval_mode', 'hybrid')).strip().lower()
-        filenames_raw = request.data.get('filenames', [])
-        file_types_raw = request.data.get('file_types', [])
         use_reranker_raw = request.data.get('use_reranker', True)
         use_self_rag_raw = request.data.get('use_self_rag', True)
+        trace_id = _parse_trace_id(request)
         
         if not question:
             return Response(
@@ -269,16 +341,13 @@ class ChatView(APIView):
             session_id = self._parse_session_id(session_id_raw)
             use_reranker = _parse_bool(use_reranker_raw, 'use_reranker')
             use_self_rag = _parse_bool(use_self_rag_raw, 'use_self_rag')
-            if retrieval_mode_raw not in {'vector', 'hybrid'}:
+            if retrieval_mode_raw not in {'vector', 'hybrid', 'hybrid_multivector'}:
                 return Response(
-                    {"error": "retrieval_mode phải là vector hoặc hybrid"},
+                    {"error": "retrieval_mode phải là vector, hybrid hoặc hybrid_multivector"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            metadata_filters = {
-                "filenames": _parse_string_list(filenames_raw),
-                "file_types": _parse_string_list(file_types_raw),
-            }
+            metadata_filters = _build_metadata_filters(request.data)
         except ValueError as exc:
             return Response(
                 {"error": str(exc)},
@@ -295,6 +364,7 @@ class ChatView(APIView):
                 metadata_filters=metadata_filters,
                 use_reranker=use_reranker,
                 use_self_rag=use_self_rag,
+                trace_id=trace_id,
             )
             
             return Response({
@@ -313,11 +383,153 @@ class ChatView(APIView):
                 "confidence_score": result.get("confidence_score", 0.0),
                 "confidence_label": result.get("confidence_label", "low"),
                 "self_check": result.get("self_check", {}),
+                "trace_id": result.get("trace_id", trace_id),
+                "timings_ms": result.get("timings_ms", {}),
             })
             
         except Exception as e:
             return Response(
                 {"error": f"Lỗi xử lý câu hỏi: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ChatStreamView(APIView):
+    """
+    API endpoint để chat streaming qua SSE
+    POST /api/chat/stream/
+    """
+
+    parser_classes = [JSONParser]
+    renderer_classes = [ServerSentEventRenderer, JSONRenderer]
+
+    def post(self, request):
+        question = str(request.data.get('question', '')).strip()
+        if not question:
+            return Response(
+                {"error": "Câu hỏi không được để trống"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            history = ChatView._parse_history(request.data.get('history', []))
+            session_id = ChatView._parse_session_id(request.data.get('session_id'))
+            retrieval_mode_raw = str(request.data.get('retrieval_mode', 'hybrid')).strip().lower()
+            if retrieval_mode_raw not in {'vector', 'hybrid', 'hybrid_multivector'}:
+                return Response(
+                    {"error": "retrieval_mode phải là vector, hybrid hoặc hybrid_multivector"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            use_reranker = _parse_bool(request.data.get('use_reranker', True), 'use_reranker')
+            use_self_rag = _parse_bool(request.data.get('use_self_rag', True), 'use_self_rag')
+            metadata_filters = _build_metadata_filters(request.data)
+            trace_id = _parse_trace_id(request)
+        except ValueError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        rag_engine = _get_rag_engine()
+
+        def _event_stream():
+            try:
+                for event in rag_engine.chat_stream(
+                    question=question,
+                    history=history,
+                    session_id=session_id,
+                    retrieval_mode=retrieval_mode_raw,
+                    metadata_filters=metadata_filters,
+                    use_reranker=use_reranker,
+                    use_self_rag=use_self_rag,
+                    trace_id=trace_id,
+                ):
+                    event_name = str(event.get('event', 'message'))
+                    data = event.get('data', {})
+                    payload = json.dumps(data, ensure_ascii=False)
+                    yield f"event: {event_name}\ndata: {payload}\n\n"
+            except Exception as exc:
+                payload = json.dumps({"error": str(exc), "trace_id": trace_id}, ensure_ascii=False)
+                yield f"event: error\ndata: {payload}\n\n"
+
+        response = StreamingHttpResponse(_event_stream(), content_type='text/event-stream')
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
+
+
+class SelfRAGCalibrationView(APIView):
+    """
+    API endpoint calibrate ngưỡng Self-RAG từ benchmark set
+    POST /api/self-rag/calibrate/
+    """
+
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+        evaluation_set = request.data.get('evaluation_set', [])
+        retrieval_mode = str(request.data.get('retrieval_mode', 'hybrid')).strip().lower()
+        run_ragas_raw = request.data.get('run_ragas', False)
+        persist_artifact_raw = request.data.get('persist_artifact', False)
+
+        if not isinstance(evaluation_set, list) or not evaluation_set:
+            return Response(
+                {"error": "evaluation_set phải là danh sách và không được rỗng"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            top_k = _parse_int(request.data.get('top_k', 3), 'top_k', min_value=1)
+            run_ragas = _parse_bool(run_ragas_raw, 'run_ragas')
+            persist_artifact = _parse_bool(persist_artifact_raw, 'persist_artifact')
+            if retrieval_mode not in {'vector', 'hybrid', 'hybrid_multivector'}:
+                return Response(
+                    {"error": "retrieval_mode phải là vector, hybrid hoặc hybrid_multivector"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except ValueError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        rag_engine = _get_rag_engine()
+        try:
+            original_multi_vector = bool(getattr(rag_engine, 'enable_multi_vector', False))
+            if retrieval_mode == 'hybrid_multivector':
+                rag_engine.enable_multi_vector = True
+
+            try:
+                report = rag_engine.calibrate_self_rag_threshold(
+                    evaluation_set=evaluation_set,
+                    top_k=top_k or 3,
+                    retrieval_mode='hybrid' if retrieval_mode == 'hybrid_multivector' else retrieval_mode,
+                    run_ragas=run_ragas,
+                    persist_artifact=persist_artifact,
+                )
+            finally:
+                rag_engine.enable_multi_vector = original_multi_vector
+
+            return Response(
+                {
+                    "success": True,
+                    "threshold": report.get("threshold"),
+                    "metrics": report.get("metrics", {}),
+                    "samples": report.get("samples", 0),
+                    "rows": report.get("rows", []),
+                    "ragas": report.get("ragas"),
+                    "artifact_path": report.get("artifact_path"),
+                }
+            )
+        except ValueError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as exc:
+            return Response(
+                {"error": f"Lỗi calibrate self-rag: {str(exc)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -436,7 +648,11 @@ class DeleteDocumentByFilenameView(APIView):
             rag_engine = _get_rag_engine()
             result = rag_engine.delete_documents_by_filename(filename)
 
-            if result["removed_chunks"] == 0 and result["removed_source_documents"] == 0:
+            if (
+                result["removed_chunks"] == 0
+                and result["removed_source_documents"] == 0
+                and int(result.get("removed_qdrant_points", 0)) == 0
+            ):
                 return Response(
                     {"error": "Không tìm thấy tài liệu tương ứng để xóa"},
                     status=status.HTTP_404_NOT_FOUND
@@ -449,6 +665,7 @@ class DeleteDocumentByFilenameView(APIView):
                     "filename": filename,
                     "removed_chunks": result["removed_chunks"],
                     "removed_source_documents": result["removed_source_documents"],
+                    "removed_qdrant_points": result.get("removed_qdrant_points", 0),
                     "document_count": result["document_count"],
                     "uploaded_files": result["uploaded_files"],
                 }
@@ -547,7 +764,7 @@ class RetrievalBenchmarkView(APIView):
     """
 
     parser_classes = [JSONParser]
-    DEFAULT_RETRIEVAL_MODES = ["vector", "hybrid", "hybrid_rerank"]
+    DEFAULT_RETRIEVAL_MODES = ["vector", "hybrid", "hybrid_rerank", "hybrid_multivector"]
 
     def post(self, request):
         evaluation_set = request.data.get('evaluation_set', [])
@@ -568,19 +785,13 @@ class RetrievalBenchmarkView(APIView):
 
         try:
             parsed_top_k = _parse_int(top_k_raw, 'top_k', min_value=1)
-            filenames = _parse_string_list(request.data.get('filenames', []))
-            file_types = _parse_string_list(request.data.get('file_types', []))
             retrieval_modes = [str(item).strip().lower() for item in retrieval_modes_raw if str(item).strip()]
+            metadata_filters = _build_metadata_filters(request.data)
         except ValueError as exc:
             return Response(
                 {"error": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        metadata_filters = {
-            "filenames": filenames,
-            "file_types": file_types,
-        }
 
         rag_engine = _get_rag_engine()
         try:

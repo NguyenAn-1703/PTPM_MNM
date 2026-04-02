@@ -1,6 +1,7 @@
 """Factories for embeddings and LLM client with process-local caching."""
 from functools import lru_cache
-from typing import Any, Dict
+import json
+from typing import Any, Dict, Iterator
 
 import requests
 
@@ -9,7 +10,7 @@ from .config import get_rag_settings
 
 @lru_cache(maxsize=1)
 def get_embeddings():
-    from src.rag.embeddings import OllamaHTTPEmbeddings
+    from src.llm.embeddings import OllamaHTTPEmbeddings
 
     cfg = get_rag_settings()
     return OllamaHTTPEmbeddings(
@@ -37,6 +38,38 @@ class OllamaLLMClient:
         response.raise_for_status()
         data = response.json()
         return str(data.get("response", "")).strip()
+
+    def generate_stream(self, prompt: str, temperature: float = 0.2) -> Iterator[str]:
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": True,
+            "options": {"temperature": temperature},
+        }
+
+        with requests.post(
+            f"{self.base_url}/api/generate",
+            json=payload,
+            timeout=self.timeout,
+            stream=True,
+        ) as response:
+            response.raise_for_status()
+
+            for raw_line in response.iter_lines(decode_unicode=True):
+                if not raw_line:
+                    continue
+
+                try:
+                    payload = json.loads(raw_line)
+                except json.JSONDecodeError:
+                    continue
+
+                token = str(payload.get("response", ""))
+                if token:
+                    yield token
+
+                if payload.get("done"):
+                    break
 
 
 @lru_cache(maxsize=1)

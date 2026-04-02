@@ -1,6 +1,10 @@
 """Text normalization, chunking, and citation utilities for RAG."""
+import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
+
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_chunk_params(default_size: int, default_overlap: int, chunk_size: Optional[int], chunk_overlap: Optional[int]) -> Tuple[int, int]:
@@ -16,40 +20,19 @@ def normalize_chunk_params(default_size: int, default_overlap: int, chunk_size: 
     return size, overlap
 
 
-def split_text(text: str, chunk_size: int, chunk_overlap: int) -> List[str]:
+def split_text(text: str, chunk_size: int, chunk_overlap: int, strategy: str = "fixed") -> List[str]:
     """Split text into overlapping chunks."""
-    text = (text or "").strip()
-    if not text:
-        return []
-
-    step = max(1, chunk_size - chunk_overlap)
-    chunks: List[str] = []
-
-    start = 0
-    text_len = len(text)
-    while start < text_len:
-        end = min(start + chunk_size, text_len)
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end >= text_len:
-            break
-        start += step
-
-    return chunks
+    chunks = split_text_with_offsets(
+        text,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        base_offset=0,
+        strategy=strategy,
+    )
+    return [item["content"] for item in chunks]
 
 
-def split_text_with_offsets(
-    text: str,
-    chunk_size: int,
-    chunk_overlap: int,
-    base_offset: int = 0,
-) -> List[Dict[str, Any]]:
-    """Split text into chunks with character offsets relative to original source."""
-    text = text or ""
-    if not text.strip():
-        return []
-
+def _split_fixed_with_offsets(text: str, chunk_size: int, chunk_overlap: int, base_offset: int = 0) -> List[Dict[str, Any]]:
     step = max(1, chunk_size - chunk_overlap)
 
     chunks: List[Dict[str, Any]] = []
@@ -79,6 +62,79 @@ def split_text_with_offsets(
         start += step
 
     return chunks
+
+
+def _split_recursive_with_offsets(text: str, chunk_size: int, chunk_overlap: int, base_offset: int = 0) -> List[Dict[str, Any]]:
+    try:
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+    except Exception:
+        logger.warning("Recursive splitter unavailable; falling back to fixed strategy")
+        return _split_fixed_with_offsets(text, chunk_size, chunk_overlap, base_offset=base_offset)
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n\n", "\n", ". ", "; ", ": ", ", ", " ", ""],
+        keep_separator=False,
+    )
+
+    split_chunks = splitter.split_text(text)
+    if not split_chunks:
+        return []
+
+    chunks: List[Dict[str, Any]] = []
+    search_cursor = 0
+    lower_text = text.lower()
+
+    for candidate in split_chunks:
+        normalized = (candidate or "").strip()
+        if not normalized:
+            continue
+
+        idx = lower_text.find(normalized.lower(), search_cursor)
+        if idx < 0:
+            idx = lower_text.find(normalized.lower())
+
+        if idx < 0:
+            idx = search_cursor
+
+        end = min(len(text), idx + len(normalized))
+        if end <= idx:
+            continue
+
+        chunks.append(
+            {
+                "content": text[idx:end],
+                "char_start": base_offset + idx,
+                "char_end": base_offset + end,
+            }
+        )
+        search_cursor = max(0, end - max(chunk_overlap + 8, 24))
+
+    return chunks
+
+
+def split_text_with_offsets(
+    text: str,
+    chunk_size: int,
+    chunk_overlap: int,
+    base_offset: int = 0,
+    strategy: str = "fixed",
+) -> List[Dict[str, Any]]:
+    """Split text into chunks with character offsets relative to original source."""
+    text = text or ""
+    if not text.strip():
+        return []
+
+    normalized_strategy = str(strategy or "fixed").strip().lower()
+    if normalized_strategy == "semantic":
+        # Semantic mode currently maps to recursive boundaries to preserve stability.
+        normalized_strategy = "recursive"
+
+    if normalized_strategy == "recursive":
+        return _split_recursive_with_offsets(text, chunk_size, chunk_overlap, base_offset=base_offset)
+
+    return _split_fixed_with_offsets(text, chunk_size, chunk_overlap, base_offset=base_offset)
 
 
 def extract_highlights(content: str, answer: str) -> List[Dict[str, Any]]:

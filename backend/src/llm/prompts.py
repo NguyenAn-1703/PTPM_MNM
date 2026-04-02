@@ -38,6 +38,11 @@ def build_condense_question_prompt(history_text: str, question: str) -> str:
 def build_chat_answer_prompt(system_prompt: str, history_text: str, context_text: str, question: str) -> str:
     return (
         f"SYSTEM PROMPT:\n{system_prompt}\n\n"
+        "HƯỚNG DẪN SUY LUẬN NỘI BỘ (KHÔNG IN RA):\n"
+        "1) Trích xuất dữ kiện trực tiếp từ context.\n"
+        "2) Liên kết dữ kiện để trả lời câu hỏi.\n"
+        "3) Tự kiểm tra mâu thuẫn và phần thiếu bằng context.\n"
+        "4) Chỉ in RA CÂU TRẢ LỜI CUỐI CÙNG, không mô tả chuỗi suy luận.\n\n"
         f"CHAT HISTORY (3-5 câu gần nhất):\n{history_text}\n\n"
         f"RAG CONTEXT (chunks liên quan):\n{context_text}\n\n"
         f"CÂU HỎI HIỆN TẠI:\n{question}\n\n"
@@ -48,7 +53,8 @@ def build_chat_answer_prompt(system_prompt: str, history_text: str, context_text
 def build_chat_retry_prompt(system_prompt: str, history_text: str, context_text: str, question: str) -> str:
     return (
         f"SYSTEM PROMPT:\n{system_prompt}\n\n"
-        "Hãy suy luận như một chuyên gia và chỉ dùng dữ kiện có trong context.\n\n"
+        "Hãy suy luận như một chuyên gia và chỉ dùng dữ kiện có trong context.\n"
+        "Suy luận theo bước nội bộ, nhưng chỉ trả về kết quả cuối cùng.\n\n"
         f"CHAT HISTORY:\n{history_text}\n\n"
         f"RAG CONTEXT:\n{context_text}\n\n"
         f"QUESTION:\n{question}\n\n"

@@ -1,4 +1,5 @@
 """Session conversation memory manager for RAG chats."""
+import os
 import re
 import threading
 import time
@@ -16,6 +17,44 @@ class SessionMemoryStore:
         self._session_lock = threading.Lock()
         self._session_histories: Dict[str, List[Dict[str, str]]] = {}
         self._session_last_seen: Dict[str, float] = {}
+        self._cache = None
+        self._cache_sessions_key = "rag:session_memory:active"
+
+        use_cache = str(os.getenv("USE_DJANGO_CACHE_MEMORY", "true")).strip().lower() in {"1", "true", "yes", "on"}
+        if use_cache:
+            try:
+                from django.core.cache import cache
+
+                self._cache = cache
+            except Exception:
+                self._cache = None
+
+    def _cache_key(self, session_id: str) -> str:
+        return f"rag:session_memory:{session_id}"
+
+    def _cache_track_session(self, session_id: str) -> None:
+        if self._cache is None:
+            return
+
+        active_sessions = self._cache.get(self._cache_sessions_key) or []
+        if session_id in active_sessions:
+            self._cache.set(self._cache_sessions_key, active_sessions, timeout=self.session_ttl_seconds)
+            return
+
+        active_sessions.append(session_id)
+        if len(active_sessions) > self.max_memory_sessions:
+            active_sessions = active_sessions[-self.max_memory_sessions :]
+        self._cache.set(self._cache_sessions_key, active_sessions, timeout=self.session_ttl_seconds)
+
+    def _cache_untrack_session(self, session_id: str) -> None:
+        if self._cache is None:
+            return
+
+        active_sessions = self._cache.get(self._cache_sessions_key) or []
+        if session_id not in active_sessions:
+            return
+        active_sessions = [item for item in active_sessions if item != session_id]
+        self._cache.set(self._cache_sessions_key, active_sessions, timeout=self.session_ttl_seconds)
 
     def sanitize_history(self, history: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """Normalize chat history into user/assistant message pairs with bounded size."""
@@ -63,6 +102,13 @@ class SessionMemoryStore:
             self._session_last_seen.pop(sid, None)
 
     def get_session_history(self, session_id: str) -> List[Dict[str, str]]:
+        if self._cache is not None:
+            cached = self._cache.get(self._cache_key(session_id)) or []
+            sanitized = self.sanitize_history(cached)
+            self._cache.set(self._cache_key(session_id), sanitized, timeout=self.session_ttl_seconds)
+            self._cache_track_session(session_id)
+            return list(sanitized)
+
         with self._session_lock:
             self._evict_stale_sessions()
             history = self._session_histories.get(session_id, [])
@@ -71,6 +117,11 @@ class SessionMemoryStore:
 
     def set_session_history(self, session_id: str, history: List[Dict[str, str]]) -> None:
         sanitized = self.sanitize_history(history)
+        if self._cache is not None:
+            self._cache.set(self._cache_key(session_id), sanitized, timeout=self.session_ttl_seconds)
+            self._cache_track_session(session_id)
+            return
+
         with self._session_lock:
             self._session_histories[session_id] = sanitized
             self._session_last_seen[session_id] = time.time()
@@ -78,6 +129,17 @@ class SessionMemoryStore:
 
     def append_session_messages(self, session_id: str, messages: List[Dict[str, str]]) -> None:
         if not messages:
+            return
+
+        if self._cache is not None:
+            existing = self._cache.get(self._cache_key(session_id)) or []
+            merged = existing + messages
+            self._cache.set(
+                self._cache_key(session_id),
+                self.sanitize_history(merged),
+                timeout=self.session_ttl_seconds,
+            )
+            self._cache_track_session(session_id)
             return
 
         with self._session_lock:
@@ -92,6 +154,11 @@ class SessionMemoryStore:
         normalized_session_id = self.normalize_session_id(session_id)
         removed = False
 
+        if self._cache is not None:
+            removed = bool(self._cache.delete(self._cache_key(normalized_session_id)))
+            self._cache_untrack_session(normalized_session_id)
+            return removed
+
         with self._session_lock:
             if normalized_session_id in self._session_histories:
                 self._session_histories.pop(normalized_session_id, None)
@@ -103,4 +170,6 @@ class SessionMemoryStore:
         return removed
 
     def active_sessions(self) -> int:
+        if self._cache is not None:
+            return len(self._cache.get(self._cache_sessions_key) or [])
         return len(self._session_histories)
