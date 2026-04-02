@@ -21,26 +21,21 @@ def extract_text_from_pdf(file_path: str) -> str:
     Trích xuất text từ file PDF sử dụng PyPDF
     """
     try:
-        reader = PdfReader(file_path)
-        text_parts = []
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text_parts.append(page_text)
-        return "\n\n".join(text_parts)
+        return extract_pdf_text_with_pages(file_path)["text"]
     except Exception as e:
         raise Exception(f"Lỗi khi đọc PDF: {str(e)}")
 
 
-def extract_pdf_pages(file_path: str) -> List[Dict[str, Any]]:
-    """Extract PDF page text with page number and global character offsets."""
+def extract_pdf_text_with_pages(file_path: str) -> Dict[str, Any]:
+    """Extract PDF text once and return both joined text and page segments with stable offsets."""
     try:
         reader = PdfReader(file_path)
         pages: List[Dict[str, Any]] = []
+        text_parts: List[str] = []
         cursor = 0
 
         for page_index, page in enumerate(reader.pages):
-            page_text = (page.extract_text() or "").strip()
+            page_text = page.extract_text() or ""
             if not page_text:
                 continue
 
@@ -54,11 +49,23 @@ def extract_pdf_pages(file_path: str) -> List[Dict[str, Any]]:
                     "char_end": end,
                 }
             )
+            text_parts.append(page_text)
 
-            # Keep spacing equivalent to join("\n\n") in extract_text_from_pdf.
+            # Keep spacing equivalent to join("\n\n") in full-text output.
             cursor = end + 2
 
-        return pages
+        return {
+            "text": "\n\n".join(text_parts),
+            "pages": pages,
+        }
+    except Exception as e:
+        raise Exception(f"Lỗi khi đọc PDF: {str(e)}")
+
+
+def extract_pdf_pages(file_path: str) -> List[Dict[str, Any]]:
+    """Extract PDF page text with page number and global character offsets."""
+    try:
+        return extract_pdf_text_with_pages(file_path)["pages"]
     except Exception as e:
         raise Exception(f"Lỗi khi đọc PDF theo trang: {str(e)}")
 

@@ -69,8 +69,8 @@ class RAGIndexingMixin:
 
         if source_segments:
             for segment in source_segments:
-                segment_text = str(segment.get("text", "")).strip()
-                if not segment_text:
+                segment_text = str(segment.get("text", ""))
+                if not segment_text.strip():
                     continue
 
                 segment_start = int(segment.get("char_start", 0))
@@ -194,5 +194,10 @@ class RAGIndexingMixin:
                 **(metadata or {}),
             },
         )
+
+        if hasattr(self, "_vector_revision"):
+            self._vector_revision += 1
+        if hasattr(self, "_invalidate_retrieval_cache"):
+            self._invalidate_retrieval_cache()
 
         return len(chunks)

@@ -4,7 +4,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from .prompts import build_chat_answer_prompt, build_chat_retry_prompt
+from .prompts import build_chat_answer_prompt
 from .text import build_citations, format_history
 
 
@@ -56,6 +56,29 @@ class RAGChatPipelineMixin:
             "rerank_info": rerank_info,
             "retrieve_ms": round(retrieve_ms, 3),
             "rerank_ms": round(rerank_ms, 3),
+        }
+
+    def _assess_answer(self, question: str, answer: str, contexts: List[Dict[str, Any]], use_self_rag: bool) -> Dict[str, Any]:
+        self_eval = self._self_evaluate_answer(question=question, answer=answer, contexts=contexts)
+        threshold = float(getattr(self, "self_rag_confidence_threshold", 0.58))
+        self_rag_applied = bool(
+            use_self_rag and (not self_eval.get("supported") or float(self_eval.get("confidence", 0.0)) < threshold)
+        )
+        confidence_score = min(
+            1.0,
+            max(
+                0.0,
+                0.6 * float(self_eval.get("confidence", 0.0))
+                + (0.4 if contexts else 0.0)
+                - (0.15 if not contexts else 0.0),
+            ),
+        )
+
+        return {
+            "self_check": self_eval,
+            "self_rag_applied": self_rag_applied,
+            "confidence_score": confidence_score,
+            "confidence_label": self._confidence_label(confidence_score),
         }
 
     def chat(
@@ -152,46 +175,13 @@ class RAGChatPipelineMixin:
         generation_ms = (time.perf_counter() - generation_started) * 1000
 
         eval_started = time.perf_counter()
-        self_eval = self._self_evaluate_answer(question=question, answer=answer, contexts=contexts)
-        self_rag_applied = False
-        threshold = float(getattr(self, "self_rag_confidence_threshold", 0.58))
-
-        if use_self_rag and (not self_eval.get("supported") or float(self_eval.get("confidence", 0.0)) < threshold):
-            self_rag_applied = True
-            rewritten_query = self._rewrite_query_for_retrieval(question, effective_history)
-            second_retrieval = self._retrieve_contexts(
-                query=rewritten_query,
-                top_k=top_k,
-                retrieval_mode=retrieval_mode,
-                metadata_filters=metadata_filters,
-                use_reranker=use_reranker,
-            )
-            second_contexts = second_retrieval["contexts"]
-
-            if second_contexts:
-                second_context_text = "\n\n---\n\n".join([ctx.get("compressed_content") or ctx["content"] for ctx in second_contexts])
-                second_prompt = build_chat_retry_prompt(self.system_prompt, history_text, second_context_text, question)
-                try:
-                    second_answer = self._invoke_llm(second_prompt)
-                    second_eval = self._self_evaluate_answer(question=question, answer=second_answer, contexts=second_contexts)
-                    if float(second_eval.get("confidence", 0.0)) >= float(self_eval.get("confidence", 0.0)):
-                        answer = second_answer
-                        contexts = second_contexts
-                        self_eval = second_eval
-                except Exception:
-                    pass
-        eval_ms = (time.perf_counter() - eval_started) * 1000
-
-        confidence_score = min(
-            1.0,
-            max(
-                0.0,
-                0.6 * float(self_eval.get("confidence", 0.0))
-                + (0.4 if contexts else 0.0)
-                - (0.15 if not contexts else 0.0),
-            ),
+        assessment = self._assess_answer(
+            question=question,
+            answer=answer,
+            contexts=contexts,
+            use_self_rag=use_self_rag,
         )
-        confidence_label = self._confidence_label(confidence_score)
+        eval_ms = (time.perf_counter() - eval_started) * 1000
 
         self.memory.append_session_messages(
             resolved_session_id,
@@ -212,10 +202,10 @@ class RAGChatPipelineMixin:
             "retrieval_mode": retrieval_mode,
             "applied_filters": metadata_filters or {},
             "reranker": {"used": bool(rerank_info.get("used", False)), "model": rerank_info.get("model")},
-            "self_rag_applied": self_rag_applied,
-            "confidence_score": round(confidence_score, 4),
-            "confidence_label": confidence_label,
-            "self_check": self_eval,
+            "self_rag_applied": bool(assessment["self_rag_applied"]),
+            "confidence_score": round(float(assessment["confidence_score"]), 4),
+            "confidence_label": assessment["confidence_label"],
+            "self_check": assessment["self_check"],
             "trace_id": request_trace_id,
             "timings_ms": {
                 "retrieve": retrieval_result["retrieve_ms"],
@@ -342,18 +332,11 @@ class RAGChatPipelineMixin:
             return
 
         answer = "".join(answer_parts).strip()
-        self_eval = self._self_evaluate_answer(question=question, answer=answer, contexts=contexts)
-        threshold = float(getattr(self, "self_rag_confidence_threshold", 0.58))
-        self_rag_applied = bool(use_self_rag and (not self_eval.get("supported") or float(self_eval.get("confidence", 0.0)) < threshold))
-
-        confidence_score = min(
-            1.0,
-            max(
-                0.0,
-                0.6 * float(self_eval.get("confidence", 0.0))
-                + (0.4 if contexts else 0.0)
-                - (0.15 if not contexts else 0.0),
-            ),
+        assessment = self._assess_answer(
+            question=question,
+            answer=answer,
+            contexts=contexts,
+            use_self_rag=use_self_rag,
         )
 
         self.memory.append_session_messages(
@@ -375,10 +358,10 @@ class RAGChatPipelineMixin:
                 "rewritten": rewritten,
                 "retrieval_mode": retrieval_mode,
                 "applied_filters": metadata_filters or {},
-                "self_rag_applied": self_rag_applied,
-                "confidence_score": round(confidence_score, 4),
-                "confidence_label": self._confidence_label(confidence_score),
-                "self_check": self_eval,
+                "self_rag_applied": bool(assessment["self_rag_applied"]),
+                "confidence_score": round(float(assessment["confidence_score"]), 4),
+                "confidence_label": assessment["confidence_label"],
+                "self_check": assessment["self_check"],
                 "trace_id": request_trace_id,
             },
         }

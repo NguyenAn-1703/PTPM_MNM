@@ -96,7 +96,8 @@ def _split_recursive_with_offsets(text: str, chunk_size: int, chunk_overlap: int
             idx = lower_text.find(normalized.lower())
 
         if idx < 0:
-            idx = search_cursor
+            logger.debug("Skip unmatched recursive chunk during offset mapping")
+            continue
 
         end = min(len(text), idx + len(normalized))
         if end <= idx:
@@ -153,6 +154,7 @@ def extract_highlights(content: str, answer: str) -> List[Dict[str, Any]]:
         return []
 
     matches: List[Dict[str, Any]] = []
+    sentence_cursor = 0
     for raw_sentence in re.split(r"(?<=[\.\!\?])\s+|\n+", content):
         sentence = raw_sentence.strip()
         if len(sentence) < 24:
@@ -163,9 +165,13 @@ def extract_highlights(content: str, answer: str) -> List[Dict[str, Any]]:
         if overlap == 0:
             continue
 
-        start = content.lower().find(sentence.lower())
+        start = content.lower().find(sentence.lower(), sentence_cursor)
+        if start < 0:
+            start = content.lower().find(sentence.lower())
         if start < 0:
             continue
+
+        sentence_cursor = start + len(sentence)
 
         matches.append(
             {
@@ -206,11 +212,36 @@ def build_citations(contexts: List[Dict[str, Any]], answer: str) -> List[Dict[st
             "char_end": char_end,
         }
 
+        absolute_chunk_start: Optional[int] = None
+        try:
+            if char_start is not None:
+                absolute_chunk_start = int(char_start)
+        except (TypeError, ValueError):
+            absolute_chunk_start = None
+
+        highlights = extract_highlights(str(ctx.get("content", "")), answer)
+        enriched_highlights: List[Dict[str, Any]] = []
+        for item in highlights:
+            highlight_payload: Dict[str, Any] = {
+                "text": item.get("text", ""),
+                "start": item.get("start"),
+                "end": item.get("end"),
+            }
+            if absolute_chunk_start is not None:
+                try:
+                    relative_start = int(item.get("start", 0))
+                    relative_end = int(item.get("end", 0))
+                    highlight_payload["char_start"] = absolute_chunk_start + relative_start
+                    highlight_payload["char_end"] = absolute_chunk_start + relative_end
+                except (TypeError, ValueError):
+                    pass
+            enriched_highlights.append(highlight_payload)
+
         enriched.append(
             {
                 **ctx,
                 "source_location": source_location,
-                "highlights": extract_highlights(str(ctx.get("content", "")), answer),
+                "highlights": enriched_highlights,
             }
         )
 

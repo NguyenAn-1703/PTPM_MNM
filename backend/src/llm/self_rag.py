@@ -3,24 +3,11 @@ import json
 import re
 from typing import Any, Dict, List
 
-from .prompts import build_condense_question_prompt, build_query_rewrite_prompt, build_self_eval_prompt
+from .prompts import build_condense_question_prompt, build_self_eval_prompt
 from .text import format_history
 
 
 class RAGSelfRAGMixin:
-    def _rewrite_query_for_retrieval(self, question: str, history: List[Dict[str, str]]) -> str:
-        history_text = format_history(
-            history,
-            history_max_messages=self.history_max_messages,
-            history_max_chars=self.history_max_chars,
-        )
-        prompt = build_query_rewrite_prompt(history_text=history_text, question=question)
-        try:
-            rewritten = self._invoke_llm(prompt).strip().strip('"')
-            return rewritten or question
-        except Exception:
-            return question
-
     def _self_evaluate_answer(self, question: str, answer: str, contexts: List[Dict[str, Any]]) -> Dict[str, Any]:
         context_preview = "\\n\\n".join([item.get("content", "")[:600] for item in contexts[:3]])
         prompt = build_self_eval_prompt(question=question, answer=answer, context_preview=context_preview)
@@ -33,8 +20,7 @@ class RAGSelfRAGMixin:
             confidence = min(1.0, max(0.0, confidence))
             return {"supported": supported, "confidence": confidence, "feedback": feedback}
         except Exception:
-            fallback_confidence = float(getattr(self, "self_rag_confidence_threshold", 0.58))
-            return {"supported": True, "confidence": fallback_confidence, "feedback": "fallback"}
+            return {"supported": False, "confidence": 0.0, "feedback": "self_eval_parse_failed"}
 
     @staticmethod
     def _answer_matches_expectation(answer: str, expected_keywords: List[str], expected_answer: str) -> bool:

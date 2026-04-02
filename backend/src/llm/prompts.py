@@ -1,17 +1,6 @@
 """Prompt templates for conversational and self-evaluation RAG flows."""
 
 
-def build_query_rewrite_prompt(history_text: str, question: str) -> str:
-    return (
-        "Viết lại câu truy vấn để tăng chất lượng truy xuất tài liệu RAG. "
-        "Tập trung từ khóa, thực thể, khái niệm chính. "
-        "Chỉ trả về 1 câu truy vấn mới, không giải thích.\n\n"
-        f"HISTORY:\n{history_text}\n\n"
-        f"CÂU HỎI GỐC:\n{question}\n\n"
-        "TRUY VẤN MỚI:"
-    )
-
-
 def build_self_eval_prompt(question: str, answer: str, context_preview: str) -> str:
     return (
         "Bạn là bộ kiểm định câu trả lời RAG. "
@@ -49,14 +38,3 @@ def build_chat_answer_prompt(system_prompt: str, history_text: str, context_text
         "TRẢ LỜI:"
     )
 
-
-def build_chat_retry_prompt(system_prompt: str, history_text: str, context_text: str, question: str) -> str:
-    return (
-        f"SYSTEM PROMPT:\n{system_prompt}\n\n"
-        "Hãy suy luận như một chuyên gia và chỉ dùng dữ kiện có trong context.\n"
-        "Suy luận theo bước nội bộ, nhưng chỉ trả về kết quả cuối cùng.\n\n"
-        f"CHAT HISTORY:\n{history_text}\n\n"
-        f"RAG CONTEXT:\n{context_text}\n\n"
-        f"QUESTION:\n{question}\n\n"
-        "TRẢ LỜI:"
-    )

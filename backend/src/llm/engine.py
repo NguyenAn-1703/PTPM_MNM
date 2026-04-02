@@ -55,6 +55,8 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
 
         self.storage = get_storage(self.vector_store_path)
         self.vector_store: Optional[Any] = self.storage.load_vector_store(self.embeddings)
+        self._vector_revision = 0
+        self._invalidate_retrieval_cache()
         qdrant_enabled = (
             self.vector_backend == "qdrant"
             or self.enable_qdrant_dual_write
@@ -107,6 +109,8 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
         self.vector_store = None
         self.storage.clear_vector_store()
         self.vector_adapter.clear()
+        self._vector_revision += 1
+        self._invalidate_retrieval_cache()
 
     def delete_documents_by_filename(self, filename: str) -> Dict[str, Any]:
         cleaned_filename = str(filename).strip()
@@ -117,6 +121,8 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
         removed_qdrant_points = self.vector_adapter.delete_by_filename(cleaned_filename)
 
         if self.vector_store is None:
+            self._vector_revision += 1
+            self._invalidate_retrieval_cache()
             return {
                 "removed_chunks": 0,
                 "removed_source_documents": removed_source_documents,
@@ -142,6 +148,8 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
         if remaining_documents == 0:
             self.vector_store = None
             self.storage.clear_vector_store()
+            self._vector_revision += 1
+            self._invalidate_retrieval_cache()
             return {
                 "removed_chunks": len(target_doc_ids),
                 "removed_source_documents": removed_source_documents,
@@ -151,6 +159,8 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
             }
 
         self.storage.save_vector_store(self.vector_store)
+        self._vector_revision += 1
+        self._invalidate_retrieval_cache()
 
         filenames = set()
         for doc in self.vector_store.docstore._dict.values():
@@ -198,6 +208,7 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
             "uploaded_files": [],
             "source_document_count": len(source_documents),
             "active_memory_sessions": self.memory.active_sessions(),
+            "retrieval_cache": self._retrieval_cache_stats(),
         }
 
         if self.vector_store:

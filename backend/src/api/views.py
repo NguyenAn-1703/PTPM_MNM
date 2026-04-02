@@ -20,6 +20,9 @@ import uuid
 logger = logging.getLogger(__name__)
 
 
+ALLOWED_RETRIEVAL_MODES = {'vector', 'hybrid', 'hybrid_multivector'}
+
+
 class ServerSentEventRenderer(BaseRenderer):
     """Renderer to satisfy DRF content negotiation for SSE endpoints."""
 
@@ -97,6 +100,19 @@ def _parse_trace_id(request) -> str:
     return trace_id
 
 
+def _parse_retrieval_mode(value) -> str:
+    mode = str(value or 'hybrid').strip().lower()
+    if mode not in ALLOWED_RETRIEVAL_MODES:
+        raise ValueError("retrieval_mode phải là vector, hybrid hoặc hybrid_multivector")
+    return mode
+
+
+def _parse_non_empty_list(value, field_name: str) -> list:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field_name} phải là danh sách và không được rỗng")
+    return value
+
+
 def _build_metadata_filters(request_data) -> dict:
     metadata_filters = {
         "filenames": _parse_string_list(request_data.get("filenames", [])),
@@ -127,7 +143,7 @@ class UploadDocumentView(APIView):
     IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'bmp', 'tiff']
 
     def _process_single_file(self, uploaded_file, chunk_size, chunk_overlap):
-        from src.ingestion.document_processor import process_document, get_file_extension, extract_pdf_pages
+        from src.ingestion.document_processor import extract_pdf_text_with_pages, process_document, get_file_extension
         from src.ingestion.archive import persist_uploaded_artifacts
 
         filename = uploaded_file.name
@@ -142,8 +158,13 @@ class UploadDocumentView(APIView):
             tmp_path = tmp_file.name
 
         try:
-            text = process_document(tmp_path, file_ext)
-            source_segments = extract_pdf_pages(tmp_path) if file_ext == 'pdf' else None
+            source_segments = None
+            if file_ext == 'pdf':
+                pdf_data = extract_pdf_text_with_pages(tmp_path)
+                text = str(pdf_data.get("text", ""))
+                source_segments = pdf_data.get("pages") or []
+            else:
+                text = process_document(tmp_path, file_ext)
 
             if not text.strip():
                 error_message = "Không thể trích xuất text từ tài liệu. File có thể rỗng hoặc không có nội dung chữ."
@@ -325,7 +346,7 @@ class ChatView(APIView):
         question = request.data.get('question', '').strip()
         history_raw = request.data.get('history', [])
         session_id_raw = request.data.get('session_id')
-        retrieval_mode_raw = str(request.data.get('retrieval_mode', 'hybrid')).strip().lower()
+        retrieval_mode_raw = request.data.get('retrieval_mode', 'hybrid')
         use_reranker_raw = request.data.get('use_reranker', True)
         use_self_rag_raw = request.data.get('use_self_rag', True)
         trace_id = _parse_trace_id(request)
@@ -341,11 +362,7 @@ class ChatView(APIView):
             session_id = self._parse_session_id(session_id_raw)
             use_reranker = _parse_bool(use_reranker_raw, 'use_reranker')
             use_self_rag = _parse_bool(use_self_rag_raw, 'use_self_rag')
-            if retrieval_mode_raw not in {'vector', 'hybrid', 'hybrid_multivector'}:
-                return Response(
-                    {"error": "retrieval_mode phải là vector, hybrid hoặc hybrid_multivector"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            retrieval_mode = _parse_retrieval_mode(retrieval_mode_raw)
 
             metadata_filters = _build_metadata_filters(request.data)
         except ValueError as exc:
@@ -360,7 +377,7 @@ class ChatView(APIView):
                 question,
                 history=history,
                 session_id=session_id,
-                retrieval_mode=retrieval_mode_raw,
+                retrieval_mode=retrieval_mode,
                 metadata_filters=metadata_filters,
                 use_reranker=use_reranker,
                 use_self_rag=use_self_rag,
@@ -376,7 +393,7 @@ class ChatView(APIView):
                 "session_id": result.get("session_id"),
                 "standalone_question": result.get("standalone_question", question),
                 "rewritten": bool(result.get("rewritten", False)),
-                "retrieval_mode": result.get("retrieval_mode", retrieval_mode_raw),
+                "retrieval_mode": result.get("retrieval_mode", retrieval_mode),
                 "applied_filters": result.get("applied_filters", metadata_filters),
                 "reranker": result.get("reranker", {"used": False, "model": None}),
                 "self_rag_applied": bool(result.get("self_rag_applied", False)),
@@ -414,12 +431,7 @@ class ChatStreamView(APIView):
         try:
             history = ChatView._parse_history(request.data.get('history', []))
             session_id = ChatView._parse_session_id(request.data.get('session_id'))
-            retrieval_mode_raw = str(request.data.get('retrieval_mode', 'hybrid')).strip().lower()
-            if retrieval_mode_raw not in {'vector', 'hybrid', 'hybrid_multivector'}:
-                return Response(
-                    {"error": "retrieval_mode phải là vector, hybrid hoặc hybrid_multivector"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            retrieval_mode = _parse_retrieval_mode(request.data.get('retrieval_mode', 'hybrid'))
 
             use_reranker = _parse_bool(request.data.get('use_reranker', True), 'use_reranker')
             use_self_rag = _parse_bool(request.data.get('use_self_rag', True), 'use_self_rag')
@@ -439,7 +451,7 @@ class ChatStreamView(APIView):
                     question=question,
                     history=history,
                     session_id=session_id,
-                    retrieval_mode=retrieval_mode_raw,
+                    retrieval_mode=retrieval_mode,
                     metadata_filters=metadata_filters,
                     use_reranker=use_reranker,
                     use_self_rag=use_self_rag,
@@ -469,25 +481,16 @@ class SelfRAGCalibrationView(APIView):
 
     def post(self, request):
         evaluation_set = request.data.get('evaluation_set', [])
-        retrieval_mode = str(request.data.get('retrieval_mode', 'hybrid')).strip().lower()
+        retrieval_mode_raw = request.data.get('retrieval_mode', 'hybrid')
         run_ragas_raw = request.data.get('run_ragas', False)
         persist_artifact_raw = request.data.get('persist_artifact', False)
 
-        if not isinstance(evaluation_set, list) or not evaluation_set:
-            return Response(
-                {"error": "evaluation_set phải là danh sách và không được rỗng"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
         try:
+            _parse_non_empty_list(evaluation_set, 'evaluation_set')
             top_k = _parse_int(request.data.get('top_k', 3), 'top_k', min_value=1)
             run_ragas = _parse_bool(run_ragas_raw, 'run_ragas')
             persist_artifact = _parse_bool(persist_artifact_raw, 'persist_artifact')
-            if retrieval_mode not in {'vector', 'hybrid', 'hybrid_multivector'}:
-                return Response(
-                    {"error": "retrieval_mode phải là vector, hybrid hoặc hybrid_multivector"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            retrieval_mode = _parse_retrieval_mode(retrieval_mode_raw)
         except ValueError as exc:
             return Response(
                 {"error": str(exc)},
@@ -699,25 +702,10 @@ class ChunkStrategyEvaluationView(APIView):
         chunk_overlaps = request.data.get('chunk_overlaps', self.DEFAULT_CHUNK_OVERLAPS)
         top_k = request.data.get('top_k', 3)
 
-        if not isinstance(evaluation_set, list) or not evaluation_set:
-            return Response(
-                {"error": "evaluation_set phải là danh sách và không được rỗng"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if not isinstance(chunk_sizes, list) or not chunk_sizes:
-            return Response(
-                {"error": "chunk_sizes phải là danh sách không rỗng"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if not isinstance(chunk_overlaps, list) or not chunk_overlaps:
-            return Response(
-                {"error": "chunk_overlaps phải là danh sách không rỗng"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
         try:
+            _parse_non_empty_list(evaluation_set, 'evaluation_set')
+            _parse_non_empty_list(chunk_sizes, 'chunk_sizes')
+            _parse_non_empty_list(chunk_overlaps, 'chunk_overlaps')
             parsed_chunk_sizes = [_parse_int(item, 'chunk_size', min_value=1) for item in chunk_sizes]
             parsed_chunk_overlaps = [_parse_int(item, 'chunk_overlap', min_value=0) for item in chunk_overlaps]
             parsed_top_k = _parse_int(top_k, 'top_k', min_value=1)
@@ -771,21 +759,13 @@ class RetrievalBenchmarkView(APIView):
         top_k_raw = request.data.get('top_k', 3)
         retrieval_modes_raw = request.data.get('retrieval_modes', self.DEFAULT_RETRIEVAL_MODES)
 
-        if not isinstance(evaluation_set, list) or not evaluation_set:
-            return Response(
-                {"error": "evaluation_set phải là danh sách và không được rỗng"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if not isinstance(retrieval_modes_raw, list) or not retrieval_modes_raw:
-            return Response(
-                {"error": "retrieval_modes phải là danh sách không rỗng"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
         try:
+            _parse_non_empty_list(evaluation_set, 'evaluation_set')
+            _parse_non_empty_list(retrieval_modes_raw, 'retrieval_modes')
             parsed_top_k = _parse_int(top_k_raw, 'top_k', min_value=1)
             retrieval_modes = [str(item).strip().lower() for item in retrieval_modes_raw if str(item).strip()]
+            if not retrieval_modes:
+                raise ValueError("retrieval_modes phải có ít nhất một giá trị hợp lệ")
             metadata_filters = _build_metadata_filters(request.data)
         except ValueError as exc:
             return Response(

@@ -1,11 +1,13 @@
 """Retrieval and reranking utilities for RAG engine."""
-from datetime import datetime
 import logging
 import math
 import re
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Set
 
 from django.conf import settings
+
+from .time_utils import parse_timestamp
 
 
 logger = logging.getLogger(__name__)
@@ -29,29 +31,131 @@ class RAGRetrievalMixin:
             ]
         )
 
-    @staticmethod
-    def _to_timestamp(value: Any) -> Optional[float]:
-        if value in (None, ""):
-            return None
+    def _invalidate_retrieval_cache(self) -> None:
+        self._lexical_cache = None
 
-        if isinstance(value, (int, float)):
-            return float(value)
+    def _bump_retrieval_counter(self, name: str, delta: int = 1) -> None:
+        try:
+            current = int(getattr(self, name, 0))
+        except Exception:
+            current = 0
+        setattr(self, name, current + int(delta))
 
-        text = str(value).strip()
-        if not text:
-            return None
+    def _retrieval_cache_stats(self) -> Dict[str, Any]:
+        hits = int(getattr(self, "_lexical_cache_hits", 0))
+        misses = int(getattr(self, "_lexical_cache_misses", 0))
+        total_requests = hits + misses
+        hit_rate = round(hits / total_requests, 4) if total_requests else None
+        return {
+            "revision": self._get_vector_revision(),
+            "hits": hits,
+            "misses": misses,
+            "requests": total_requests,
+            "hit_rate": hit_rate,
+            "last_build_ms": getattr(self, "_lexical_cache_last_build_ms", None),
+            "last_rows": getattr(self, "_lexical_cache_last_rows", 0),
+            "last_vocab_size": getattr(self, "_lexical_cache_last_vocab", 0),
+            "keyword_queries": int(getattr(self, "_keyword_queries", 0)),
+            "keyword_candidates_total": int(getattr(self, "_keyword_candidates_total", 0)),
+            "keyword_candidates_avg": round(
+                float(getattr(self, "_keyword_candidates_total", 0)) / max(1, int(getattr(self, "_keyword_queries", 0))),
+                3,
+            )
+            if int(getattr(self, "_keyword_queries", 0))
+            else 0.0,
+        }
+
+    def _get_vector_revision(self) -> int:
+        try:
+            return int(getattr(self, "_vector_revision", 0))
+        except Exception:
+            return 0
+
+    def _build_lexical_cache(self) -> Dict[str, Any]:
+        started = time.perf_counter()
+        revision = self._get_vector_revision()
+        empty_cache = {
+            "revision": revision,
+            "rows": [],
+            "postings": {},
+            "df": {},
+            "parent_map": {},
+        }
+
+        if self.vector_store is None:
+            self._lexical_cache = empty_cache
+            return empty_cache
 
         try:
-            return float(text)
-        except (TypeError, ValueError):
-            pass
+            docs = list(self.vector_store.docstore._dict.values())
+        except Exception:
+            self._lexical_cache = empty_cache
+            return empty_cache
 
-        try:
-            if text.endswith("Z"):
-                text = text[:-1] + "+00:00"
-            return datetime.fromisoformat(text).timestamp()
-        except (TypeError, ValueError):
-            return None
+        rows: List[Dict[str, Any]] = []
+        postings: Dict[str, List[int]] = {}
+        df: Dict[str, int] = {}
+        parent_map: Dict[str, Dict[str, Any]] = {}
+
+        for doc in docs:
+            metadata = doc.metadata or {}
+            content = str(doc.page_content or "")
+            tokens = self._tokenize(content)
+            token_freq: Dict[str, int] = {}
+            for token in tokens:
+                token_freq[token] = token_freq.get(token, 0) + 1
+
+            row_index = len(rows)
+            for token in token_freq.keys():
+                df[token] = df.get(token, 0) + 1
+                postings.setdefault(token, []).append(row_index)
+
+            parent_id = str(metadata.get("parent_chunk_id") or "").strip()
+            role = str(metadata.get("vector_role") or "content")
+            if parent_id and role == "content":
+                parent_map[parent_id] = {
+                    "content": content,
+                    "metadata": metadata,
+                }
+
+            rows.append(
+                {
+                    "content": content,
+                    "metadata": metadata,
+                    "token_freq": token_freq,
+                }
+            )
+
+        cache = {
+            "revision": revision,
+            "rows": rows,
+            "postings": postings,
+            "df": df,
+            "parent_map": parent_map,
+        }
+
+        build_ms = (time.perf_counter() - started) * 1000
+        self._lexical_cache_last_build_ms = round(build_ms, 3)
+        self._lexical_cache_last_rows = len(rows)
+        self._lexical_cache_last_vocab = len(df)
+        logger.info(
+            "Lexical cache rebuilt revision=%s rows=%s vocab=%s build_ms=%.2f",
+            revision,
+            len(rows),
+            len(df),
+            build_ms,
+        )
+
+        self._lexical_cache = cache
+        return cache
+
+    def _get_lexical_cache(self) -> Dict[str, Any]:
+        cached = getattr(self, "_lexical_cache", None)
+        if isinstance(cached, dict) and cached.get("revision") == self._get_vector_revision():
+            self._bump_retrieval_counter("_lexical_cache_hits", 1)
+            return cached
+        self._bump_retrieval_counter("_lexical_cache_misses", 1)
+        return self._build_lexical_cache()
 
     def _matches_metadata_filters(self, metadata: Dict[str, Any], filters: Optional[Dict[str, Any]]) -> bool:
         if not filters:
@@ -95,12 +199,12 @@ class RAGRetrievalMixin:
             if not tags.intersection(metadata_tags_set):
                 return False
 
-        uploaded_after = self._to_timestamp(filters.get("uploaded_after"))
-        uploaded_before = self._to_timestamp(filters.get("uploaded_before"))
+        uploaded_after = parse_timestamp(filters.get("uploaded_after"))
+        uploaded_before = parse_timestamp(filters.get("uploaded_before"))
         if uploaded_after is not None or uploaded_before is not None:
-            uploaded_at_ts = self._to_timestamp(metadata.get("uploaded_at_ts"))
+            uploaded_at_ts = parse_timestamp(metadata.get("uploaded_at_ts"))
             if uploaded_at_ts is None:
-                uploaded_at_ts = self._to_timestamp(metadata.get("uploaded_at"))
+                uploaded_at_ts = parse_timestamp(metadata.get("uploaded_at"))
 
             if uploaded_at_ts is None:
                 return False
@@ -143,52 +247,8 @@ class RAGRetrievalMixin:
 
         return filtered
 
-    def _collect_all_chunks(self, metadata_filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        if self.vector_store is None:
-            return []
-
-        try:
-            docs = list(self.vector_store.docstore._dict.values())
-        except Exception:
-            return []
-
-        chunks: List[Dict[str, Any]] = []
-        for doc in docs:
-            metadata = doc.metadata or {}
-            if not self._matches_metadata_filters(metadata, metadata_filters):
-                continue
-
-            chunks.append(
-                {
-                    "content": doc.page_content,
-                    "metadata": metadata,
-                    "score": 0.0,
-                }
-            )
-
-        return chunks
-
     def _resolve_parent_contexts(self, contexts: List[Dict[str, Any]], metadata_filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        if self.vector_store is None:
-            return contexts
-
-        try:
-            docs = list(self.vector_store.docstore._dict.values())
-        except Exception:
-            return contexts
-
-        parent_map: Dict[str, Dict[str, Any]] = {}
-        for doc in docs:
-            metadata = doc.metadata or {}
-            if str(metadata.get("vector_role") or "content") != "content":
-                continue
-            if not self._matches_metadata_filters(metadata, metadata_filters):
-                continue
-
-            parent_id = str(metadata.get("parent_chunk_id") or "").strip()
-            if not parent_id:
-                continue
-            parent_map[parent_id] = {"content": doc.page_content, "metadata": metadata}
+        parent_map = self._get_lexical_cache().get("parent_map", {})
 
         resolved: List[Dict[str, Any]] = []
         seen_parent_ids = set()
@@ -202,11 +262,14 @@ class RAGRetrievalMixin:
                 seen_parent_ids.add(parent_id)
                 if str(metadata.get("vector_role") or "content") != "content" and parent_id in parent_map:
                     parent_item = parent_map[parent_id]
+                    parent_metadata = parent_item.get("metadata", {}) or {}
+                    if not self._matches_metadata_filters(parent_metadata, metadata_filters):
+                        continue
                     resolved.append(
                         {
                             **item,
                             "content": parent_item["content"],
-                            "metadata": parent_item["metadata"],
+                            "metadata": parent_metadata,
                         }
                     )
                     continue
@@ -216,29 +279,37 @@ class RAGRetrievalMixin:
         return resolved
 
     def _keyword_search(self, query: str, top_k: int, metadata_filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        chunks = self._collect_all_chunks(metadata_filters)
-        if not chunks:
+        self._bump_retrieval_counter("_keyword_queries", 1)
+        lexical_cache = self._get_lexical_cache()
+        rows: List[Dict[str, Any]] = lexical_cache.get("rows", [])
+        if not rows:
             return []
 
         query_tokens = self._tokenize(query)
         if not query_tokens:
             return []
 
-        chunk_tokens = [self._tokenize(item["content"]) for item in chunks]
-        total_docs = len(chunk_tokens)
-        df: Dict[str, int] = {}
-        for tokens in chunk_tokens:
-            for token in set(tokens):
-                df[token] = df.get(token, 0) + 1
+        postings: Dict[str, List[int]] = lexical_cache.get("postings", {})
+        candidate_indexes: Set[int] = set()
+        for token in query_tokens:
+            candidate_indexes.update(postings.get(token, []))
+
+        self._bump_retrieval_counter("_keyword_candidates_total", len(candidate_indexes))
+
+        if not candidate_indexes:
+            return []
+
+        total_docs = max(1, len(rows))
+        df: Dict[str, int] = lexical_cache.get("df", {})
 
         scored: List[Dict[str, Any]] = []
-        for idx, tokens in enumerate(chunk_tokens):
-            if not tokens:
+        for idx in candidate_indexes:
+            row = rows[idx]
+            metadata = row.get("metadata", {}) or {}
+            if not self._matches_metadata_filters(metadata, metadata_filters):
                 continue
 
-            tf: Dict[str, int] = {}
-            for token in tokens:
-                tf[token] = tf.get(token, 0) + 1
+            tf: Dict[str, int] = row.get("token_freq", {})
 
             score = 0.0
             for token in query_tokens:
@@ -253,13 +324,20 @@ class RAGRetrievalMixin:
 
             scored.append(
                 {
-                    **chunks[idx],
+                    "content": row.get("content", ""),
+                    "metadata": metadata,
                     "score": float(1.0 / (1.0 + score)),
                     "keyword_score": float(score),
                 }
             )
 
         scored.sort(key=lambda item: item.get("keyword_score", 0.0), reverse=True)
+        logger.debug(
+            "Keyword retrieval candidates=%s matched=%s top_k=%s",
+            len(candidate_indexes),
+            len(scored),
+            top_k,
+        )
         return scored[:top_k]
 
     def _compress_contexts(self, query: str, contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

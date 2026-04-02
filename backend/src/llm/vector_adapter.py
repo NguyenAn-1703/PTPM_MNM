@@ -1,8 +1,9 @@
 """Optional vector backend adapter for Qdrant dual-write and shadow-read migration."""
-from datetime import datetime
 import logging
 import uuid
 from typing import Any, Dict, List, Optional
+
+from .time_utils import parse_timestamp
 
 
 logger = logging.getLogger(__name__)
@@ -129,8 +130,8 @@ class QdrantVectorAdapter:
                 )
             )
 
-        uploaded_after = self._to_timestamp(metadata_filters.get("uploaded_after"))
-        uploaded_before = self._to_timestamp(metadata_filters.get("uploaded_before"))
+        uploaded_after = parse_timestamp(metadata_filters.get("uploaded_after"))
+        uploaded_before = parse_timestamp(metadata_filters.get("uploaded_before"))
         if uploaded_after is not None or uploaded_before is not None:
             must_conditions.append(
                 self._models.FieldCondition(
@@ -143,29 +144,6 @@ class QdrantVectorAdapter:
             return None
 
         return self._models.Filter(must=must_conditions)
-
-    @staticmethod
-    def _to_timestamp(value: Any) -> Optional[float]:
-        if value in (None, ""):
-            return None
-        if isinstance(value, (int, float)):
-            return float(value)
-
-        text = str(value).strip()
-        if not text:
-            return None
-
-        try:
-            return float(text)
-        except (TypeError, ValueError):
-            pass
-
-        try:
-            if text.endswith("Z"):
-                text = text[:-1] + "+00:00"
-            return datetime.fromisoformat(text).timestamp()
-        except (TypeError, ValueError):
-            return None
 
     def should_use_as_primary(self) -> bool:
         return self.enabled and self.primary_backend == "qdrant"
