@@ -42,6 +42,8 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
         self.chunk_size = cfg.chunk_size
         self.chunk_overlap = cfg.chunk_overlap
         self.chunking_strategy = cfg.chunking_strategy
+        self.default_top_k = cfg.default_top_k
+        self.llm_num_predict = cfg.llm_num_predict
         self.enable_multi_vector = cfg.enable_multi_vector
         self.enable_context_reorder = cfg.enable_context_reorder
         self.enable_context_compression = cfg.enable_context_compression
@@ -80,6 +82,8 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
             "Bạn là trợ lý AI trả lời dựa trên ngữ cảnh được cung cấp."
             "Tuyệt đối không được tự ý thêm thông tin ngoài ngữ cảnh."
             "Hãy trả lời chính xác dựa trên thông tin đã cho."
+            "Ưu tiên trả lời chi tiết, liệt kê đầy đủ các ý có trong ngữ cảnh,"
+            "không tóm tắt quá ngắn khi ngữ cảnh có đủ dữ kiện."
             "Nếu không có đủ thông tin trong ngữ cảnh, phải trả lời đúng câu: "
             "'Không tìm thấy thông tin liên quan trong tài liệu đã upload.'."
         )
@@ -195,6 +199,8 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
             "memory_session_ttl_seconds": self.session_ttl_seconds,
             "default_chunk_size": self.chunk_size,
             "default_chunk_overlap": self.chunk_overlap,
+            "default_top_k": self.default_top_k,
+            "llm_num_predict": self.llm_num_predict,
             "chunking_strategy": self.chunking_strategy,
             "multi_vector_enabled": self.enable_multi_vector,
             "context_reorder_enabled": self.enable_context_reorder,

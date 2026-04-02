@@ -357,7 +357,7 @@ curl -X POST http://localhost:8000/api/upload/ \
   -F "files=@contract.pdf" \
   -F "files=@invoice.docx" \
   -F "chunk_size=1000" \
-  -F "chunk_overlap=150"
+  -F "chunk_overlap=300"
 ```
 
 **Response:**
@@ -590,17 +590,19 @@ OLLAMA_LLM=deepseek-r1:7b
 EMBEDDING_MODEL=nomic-embed-text
 
 # Chunking
-CHUNK_SIZE=1000
-CHUNK_OVERLAP=150
+CHUNK_SIZE=1500
+CHUNK_OVERLAP=300
 CHUNKING_STRATEGY=recursive
+DEFAULT_TOP_K=5
 
 # Retrieval & Context
 ENABLE_MULTI_VECTOR=true
 ENABLE_CONTEXT_REORDER=true
-ENABLE_CONTEXT_COMPRESSION=true
+ENABLE_CONTEXT_COMPRESSION=false
 CONTEXT_CANDIDATE_POOL=12
 CONTEXT_DEDUPE_JACCARD_THRESHOLD=0.82
 CONTEXT_COMPRESSION_MAX_CHARS=900
+LLM_NUM_PREDICT=1536
 
 # Self-RAG
 SELF_RAG_CONFIDENCE_THRESHOLD=0.58
@@ -652,15 +654,17 @@ LOGGING = {
 | **OLLAMA_BASE_URL** | http://localhost:11434 | URL Ollama server |
 | **OLLAMA_LLM** | deepseek-r1:7b | Model LLM chat |
 | **EMBEDDING_MODEL** | nomic-embed-text | Model embedding |
-| **CHUNK_SIZE** | 1000 | Độ dài chunk mặc định |
-| **CHUNK_OVERLAP** | 150 | Độ chồng lấn chunk |
+| **CHUNK_SIZE** | 1500 | Độ dài chunk mặc định |
+| **CHUNK_OVERLAP** | 300 | Độ chồng lấn chunk |
 | **CHUNKING_STRATEGY** | recursive | Chiến lược chunking: fixed/recursive/semantic |
+| **DEFAULT_TOP_K** | 5 | Số lượng context chunks mặc định cho mỗi request chat |
 | **ENABLE_MULTI_VECTOR** | true | Bật indexing content + summary + hypothetical query |
 | **ENABLE_CONTEXT_REORDER** | true | Chống Lost-in-the-Middle bằng context reordering |
-| **ENABLE_CONTEXT_COMPRESSION** | true | Bật nén context trước khi generate |
+| **ENABLE_CONTEXT_COMPRESSION** | false | Tắt nén context thủ công để giữ nguyên dữ kiện đầu vào |
 | **CONTEXT_CANDIDATE_POOL** | 12 | Số lượng candidate context trước rerank |
 | **CONTEXT_DEDUPE_JACCARD_THRESHOLD** | 0.82 | Ngưỡng loại bỏ context trùng lặp |
 | **CONTEXT_COMPRESSION_MAX_CHARS** | 900 | Giới hạn ký tự context sau nén |
+| **LLM_NUM_PREDICT** | 1536 | Số token output tối đa cho mỗi lần generate |
 | **SELF_RAG_CONFIDENCE_THRESHOLD** | 0.58 | Ngưỡng kích hoạt Self-RAG retry |
 | **VECTOR_BACKEND** | faiss | Backend retrieval chính: faiss hoặc qdrant |
 | **ENABLE_QDRANT_DUAL_WRITE** | false | Ghi song song sang Qdrant khi vẫn đọc từ FAISS |

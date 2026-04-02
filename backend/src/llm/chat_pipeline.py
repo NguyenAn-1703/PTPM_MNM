@@ -48,7 +48,7 @@ class RAGChatPipelineMixin:
             contexts = contexts[:top_k]
         rerank_ms = (time.perf_counter() - rerank_started) * 1000
 
-        contexts = self._compress_contexts(query, contexts)
+        # Keep full retrieved context for generation; avoid manual truncation/compression.
         contexts = self._reorder_contexts(contexts)
 
         return {
@@ -85,7 +85,7 @@ class RAGChatPipelineMixin:
         self,
         question: str,
         history: Optional[List[Dict[str, str]]] = None,
-        top_k: int = 3,
+        top_k: Optional[int] = None,
         session_id: Optional[str] = None,
         retrieval_mode: str = "hybrid",
         metadata_filters: Optional[Dict[str, Any]] = None,
@@ -95,6 +95,7 @@ class RAGChatPipelineMixin:
     ) -> Dict[str, Any]:
         request_trace_id = str(trace_id or uuid.uuid4().hex)
         total_started = time.perf_counter()
+        resolved_top_k = max(1, int(top_k or getattr(self, "default_top_k", 5)))
 
         if self.vector_store is None:
             return {
@@ -122,7 +123,7 @@ class RAGChatPipelineMixin:
 
         retrieval_result = self._retrieve_contexts(
             query=standalone_question,
-            top_k=top_k,
+            top_k=resolved_top_k,
             retrieval_mode=retrieval_mode,
             metadata_filters=metadata_filters,
             use_reranker=use_reranker,
@@ -146,6 +147,7 @@ class RAGChatPipelineMixin:
                 "standalone_question": standalone_question,
                 "rewritten": rewritten,
                 "retrieval_mode": retrieval_mode,
+                "top_k": resolved_top_k,
                 "applied_filters": metadata_filters or {},
                 "reranker": {"used": False, "model": rerank_info.get("model")},
                 "self_rag_applied": False,
@@ -200,6 +202,7 @@ class RAGChatPipelineMixin:
             "standalone_question": standalone_question,
             "rewritten": rewritten,
             "retrieval_mode": retrieval_mode,
+            "top_k": resolved_top_k,
             "applied_filters": metadata_filters or {},
             "reranker": {"used": bool(rerank_info.get("used", False)), "model": rerank_info.get("model")},
             "self_rag_applied": bool(assessment["self_rag_applied"]),
@@ -231,7 +234,7 @@ class RAGChatPipelineMixin:
         self,
         question: str,
         history: Optional[List[Dict[str, str]]] = None,
-        top_k: int = 3,
+        top_k: Optional[int] = None,
         session_id: Optional[str] = None,
         retrieval_mode: str = "hybrid",
         metadata_filters: Optional[Dict[str, Any]] = None,
@@ -240,6 +243,7 @@ class RAGChatPipelineMixin:
         trace_id: Optional[str] = None,
     ):
         request_trace_id = str(trace_id or uuid.uuid4().hex)
+        resolved_top_k = max(1, int(top_k or getattr(self, "default_top_k", 5)))
 
         if self.vector_store is None:
             yield {
@@ -265,7 +269,7 @@ class RAGChatPipelineMixin:
 
         retrieval_result = self._retrieve_contexts(
             query=standalone_question,
-            top_k=top_k,
+            top_k=resolved_top_k,
             retrieval_mode=retrieval_mode,
             metadata_filters=metadata_filters,
             use_reranker=use_reranker,
@@ -280,6 +284,7 @@ class RAGChatPipelineMixin:
                 "standalone_question": standalone_question,
                 "rewritten": rewritten,
                 "retrieval_mode": retrieval_mode,
+                "top_k": resolved_top_k,
                 "reranker": {
                     "used": bool(retrieval_result["rerank_info"].get("used", False)),
                     "model": retrieval_result["rerank_info"].get("model"),
@@ -306,6 +311,7 @@ class RAGChatPipelineMixin:
                     "answer": answer,
                     "contexts": [],
                     "has_context": False,
+                    "top_k": resolved_top_k,
                     "trace_id": request_trace_id,
                 },
             }
@@ -357,6 +363,7 @@ class RAGChatPipelineMixin:
                 "standalone_question": standalone_question,
                 "rewritten": rewritten,
                 "retrieval_mode": retrieval_mode,
+                "top_k": resolved_top_k,
                 "applied_filters": metadata_filters or {},
                 "self_rag_applied": bool(assessment["self_rag_applied"]),
                 "confidence_score": round(float(assessment["confidence_score"]), 4),

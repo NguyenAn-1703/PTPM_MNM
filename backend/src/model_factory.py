@@ -26,13 +26,17 @@ class OllamaLLMClient:
         self.base_url = cfg.ollama_base_url
         self.model = cfg.llm_model
         self.timeout = 120
+        self.num_predict = cfg.llm_num_predict
 
     def generate(self, prompt: str, temperature: float = 0.2) -> str:
         payload: Dict[str, Any] = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": temperature},
+            "options": {
+                "temperature": temperature,
+                "num_predict": self.num_predict,
+            },
         }
         response = requests.post(f"{self.base_url}/api/generate", json=payload, timeout=self.timeout)
         response.raise_for_status()
@@ -44,7 +48,10 @@ class OllamaLLMClient:
             "model": self.model,
             "prompt": prompt,
             "stream": True,
-            "options": {"temperature": temperature},
+            "options": {
+                "temperature": temperature,
+                "num_predict": self.num_predict,
+            },
         }
 
         with requests.post(

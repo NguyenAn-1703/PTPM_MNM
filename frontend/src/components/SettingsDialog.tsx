@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 
 const CHUNK_SIZE_OPTIONS = [500, 1000, 1500, 2000] as const;
-const CHUNK_OVERLAP_OPTIONS = [50, 100, 200] as const;
+const CHUNK_OVERLAP_OPTIONS = [50, 100, 200, 300] as const;
+const TOP_K_OPTIONS = [3, 5, 8, 10] as const;
 
 const ensureOption = (value: number, options: readonly number[], fallback: number): number => {
     return options.includes(value) ? value : fallback;
@@ -11,23 +12,26 @@ interface SettingsDialogProps {
     isOpen: boolean;
     chunkSize: number;
     chunkOverlap: number;
+    topK: number;
     retrievalMode: "vector" | "hybrid" | "hybrid_multivector";
     useReranker: boolean;
     useSelfRag: boolean;
     onClose: () => void;
-    onApply: (settings: { chunkSize: number; chunkOverlap: number; retrievalMode: "vector" | "hybrid" | "hybrid_multivector"; useReranker: boolean; useSelfRag: boolean }) => void;
+    onApply: (settings: { chunkSize: number; chunkOverlap: number; topK: number; retrievalMode: "vector" | "hybrid" | "hybrid_multivector"; useReranker: boolean; useSelfRag: boolean }) => void;
 }
 
-export const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, chunkSize, chunkOverlap, retrievalMode, useReranker, useSelfRag, onClose, onApply }) => {
-    const [draftChunkSize, setDraftChunkSize] = useState(ensureOption(chunkSize, CHUNK_SIZE_OPTIONS, 1000));
-    const [draftChunkOverlap, setDraftChunkOverlap] = useState(ensureOption(chunkOverlap, CHUNK_OVERLAP_OPTIONS, 100));
+export const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, chunkSize, chunkOverlap, topK, retrievalMode, useReranker, useSelfRag, onClose, onApply }) => {
+    const [draftChunkSize, setDraftChunkSize] = useState(ensureOption(chunkSize, CHUNK_SIZE_OPTIONS, 1500));
+    const [draftChunkOverlap, setDraftChunkOverlap] = useState(ensureOption(chunkOverlap, CHUNK_OVERLAP_OPTIONS, 300));
+    const [draftTopK, setDraftTopK] = useState(ensureOption(topK, TOP_K_OPTIONS, 5));
     const [draftRetrievalMode, setDraftRetrievalMode] = useState<"vector" | "hybrid" | "hybrid_multivector">(retrievalMode || "hybrid");
     const [draftUseReranker, setDraftUseReranker] = useState(Boolean(useReranker));
     const [draftUseSelfRag, setDraftUseSelfRag] = useState(Boolean(useSelfRag));
 
     const resetDrafts = () => {
-        setDraftChunkSize(ensureOption(chunkSize, CHUNK_SIZE_OPTIONS, 1000));
-        setDraftChunkOverlap(ensureOption(chunkOverlap, CHUNK_OVERLAP_OPTIONS, 100));
+        setDraftChunkSize(ensureOption(chunkSize, CHUNK_SIZE_OPTIONS, 1500));
+        setDraftChunkOverlap(ensureOption(chunkOverlap, CHUNK_OVERLAP_OPTIONS, 300));
+        setDraftTopK(ensureOption(topK, TOP_K_OPTIONS, 5));
         setDraftRetrievalMode(retrievalMode || "hybrid");
         setDraftUseReranker(Boolean(useReranker));
         setDraftUseSelfRag(Boolean(useSelfRag));
@@ -44,7 +48,14 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, chunkSiz
 
     const handleApply = () => {
         if (isInvalid) return;
-        onApply({ chunkSize: draftChunkSize, chunkOverlap: draftChunkOverlap, retrievalMode: draftRetrievalMode, useReranker: draftUseReranker, useSelfRag: draftUseSelfRag });
+        onApply({
+            chunkSize: draftChunkSize,
+            chunkOverlap: draftChunkOverlap,
+            topK: draftTopK,
+            retrievalMode: draftRetrievalMode,
+            useReranker: draftUseReranker,
+            useSelfRag: draftUseSelfRag,
+        });
         onClose();
     };
 
@@ -101,6 +112,21 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, chunkSiz
                     </label>
 
                     {isInvalid && <p className="text-xs font-semibold text-rose-500">Chunk overlap phải nhỏ hơn chunk size.</p>}
+
+                    <label className="block rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                        Top-K retrieval
+                        <select
+                            value={draftTopK}
+                            onChange={(e) => setDraftTopK(Number(e.target.value))}
+                            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-sky-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                        >
+                            {TOP_K_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                    {option}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
 
                     <label className="block rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
                         Retrieval mode

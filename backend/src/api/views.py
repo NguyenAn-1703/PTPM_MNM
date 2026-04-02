@@ -357,12 +357,16 @@ class ChatView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        rag_engine = _get_rag_engine()
+        top_k_raw = request.data.get('top_k', getattr(rag_engine, 'default_top_k', 5))
+
         try:
             history = self._parse_history(history_raw)
             session_id = self._parse_session_id(session_id_raw)
             use_reranker = _parse_bool(use_reranker_raw, 'use_reranker')
             use_self_rag = _parse_bool(use_self_rag_raw, 'use_self_rag')
             retrieval_mode = _parse_retrieval_mode(retrieval_mode_raw)
+            top_k = _parse_int(top_k_raw, 'top_k', min_value=1) or getattr(rag_engine, 'default_top_k', 5)
 
             metadata_filters = _build_metadata_filters(request.data)
         except ValueError as exc:
@@ -372,10 +376,10 @@ class ChatView(APIView):
             )
         
         try:
-            rag_engine = _get_rag_engine()
             result = rag_engine.chat(
                 question,
                 history=history,
+                top_k=top_k,
                 session_id=session_id,
                 retrieval_mode=retrieval_mode,
                 metadata_filters=metadata_filters,
@@ -394,6 +398,7 @@ class ChatView(APIView):
                 "standalone_question": result.get("standalone_question", question),
                 "rewritten": bool(result.get("rewritten", False)),
                 "retrieval_mode": result.get("retrieval_mode", retrieval_mode),
+                "top_k": result.get("top_k", top_k),
                 "applied_filters": result.get("applied_filters", metadata_filters),
                 "reranker": result.get("reranker", {"used": False, "model": None}),
                 "self_rag_applied": bool(result.get("self_rag_applied", False)),
@@ -432,6 +437,9 @@ class ChatStreamView(APIView):
             history = ChatView._parse_history(request.data.get('history', []))
             session_id = ChatView._parse_session_id(request.data.get('session_id'))
             retrieval_mode = _parse_retrieval_mode(request.data.get('retrieval_mode', 'hybrid'))
+            rag_engine = _get_rag_engine()
+            top_k_raw = request.data.get('top_k', getattr(rag_engine, 'default_top_k', 5))
+            top_k = _parse_int(top_k_raw, 'top_k', min_value=1) or getattr(rag_engine, 'default_top_k', 5)
 
             use_reranker = _parse_bool(request.data.get('use_reranker', True), 'use_reranker')
             use_self_rag = _parse_bool(request.data.get('use_self_rag', True), 'use_self_rag')
@@ -443,13 +451,13 @@ class ChatStreamView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        rag_engine = _get_rag_engine()
 
         def _event_stream():
             try:
                 for event in rag_engine.chat_stream(
                     question=question,
                     history=history,
+                    top_k=top_k,
                     session_id=session_id,
                     retrieval_mode=retrieval_mode,
                     metadata_filters=metadata_filters,

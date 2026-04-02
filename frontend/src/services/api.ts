@@ -62,6 +62,7 @@ export interface ChatResponse {
     standalone_question?: string;
     rewritten?: boolean;
     retrieval_mode?: RetrievalMode;
+    top_k?: number;
     applied_filters?: {
         filenames?: string[];
         file_types?: string[];
@@ -100,6 +101,7 @@ export interface ChatStreamMeta {
     standalone_question?: string;
     rewritten?: boolean;
     retrieval_mode?: RetrievalMode;
+    top_k?: number;
     reranker?: {
         used?: boolean;
         model?: string | null;
@@ -149,6 +151,8 @@ export interface StatusResponse {
     history_max_messages?: number;
     default_chunk_size?: number;
     default_chunk_overlap?: number;
+    default_top_k?: number;
+    llm_num_predict?: number;
     chunking_strategy?: "fixed" | "recursive" | "semantic";
     multi_vector_enabled?: boolean;
     context_reorder_enabled?: boolean;
@@ -272,6 +276,7 @@ export const api = {
         sessionId?: string,
         options?: {
             retrievalMode?: RetrievalMode;
+            topK?: number;
             filenames?: string[];
             fileTypes?: string[];
             useReranker?: boolean;
@@ -288,6 +293,7 @@ export const api = {
                 history,
                 session_id: sessionId,
                 retrieval_mode: options?.retrievalMode || "hybrid",
+                top_k: options?.topK,
                 filenames: options?.filenames || [],
                 file_types: options?.fileTypes || [],
                 use_reranker: options?.useReranker ?? true,
@@ -304,6 +310,7 @@ export const api = {
         sessionId?: string,
         options?: {
             retrievalMode?: RetrievalMode;
+            topK?: number;
             filenames?: string[];
             fileTypes?: string[];
             useReranker?: boolean;
@@ -322,6 +329,7 @@ export const api = {
                 history,
                 session_id: sessionId,
                 retrieval_mode: options?.retrievalMode || "hybrid",
+                top_k: options?.topK,
                 filenames: options?.filenames || [],
                 file_types: options?.fileTypes || [],
                 use_reranker: options?.useReranker ?? true,
@@ -397,6 +405,7 @@ export const api = {
                     standalone_question: (payload as ChatResponse).standalone_question,
                     rewritten: (payload as ChatResponse).rewritten,
                     retrieval_mode: (payload as ChatResponse).retrieval_mode,
+                    top_k: (payload as ChatResponse).top_k,
                     applied_filters: (payload as ChatResponse).applied_filters,
                     reranker: (payload as ChatResponse).reranker,
                     self_rag_applied: (payload as ChatResponse).self_rag_applied,

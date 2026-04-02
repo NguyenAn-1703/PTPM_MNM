@@ -102,7 +102,7 @@ Base URL: `http://localhost:8000/api`
 | Endpoint | Method | Mô tả | Payload chính |
 |---|---|---|---|
 | `/upload/` | POST | Upload + index tài liệu | `file`/`files`, `chunk_size`, `chunk_overlap` |
-| `/chat/` | POST | Hỏi đáp theo RAG | `question`, `history`, `session_id`, `retrieval_mode`, `filenames`, `file_types`, `page_from`, `page_to`, `uploaded_after`, `uploaded_before`, `tags`, `use_reranker`, `use_self_rag` |
+| `/chat/` | POST | Hỏi đáp theo RAG | `question`, `history`, `session_id`, `retrieval_mode`, `top_k`, `filenames`, `file_types`, `page_from`, `page_to`, `uploaded_after`, `uploaded_before`, `tags`, `use_reranker`, `use_self_rag` |
 | `/chat/stream/` | POST | Hỏi đáp streaming (SSE) | Payload tương tự `/chat/` |
 | `/chat/memory/clear/` | POST | Reset memory theo session | `session_id` |
 | `/status/` | GET | Kiểm tra trạng thái runtime | None |
@@ -124,15 +124,17 @@ DEBUG=True                                              #Bật/tắt debug
 OLLAMA_BASE_URL=http://localhost:11434                 #URL Ollama server
 OLLAMA_LLM=deepseek-r1:7b                              #LLM dùng để generate
 EMBEDDING_MODEL=nomic-embed-text                       #Model embedding  
-CHUNK_SIZE=1000                                        #Chunk size mặc định
-CHUNK_OVERLAP=150                                      #Chunk overlap mặc định
+CHUNK_SIZE=1500                                        #Chunk size mặc định
+CHUNK_OVERLAP=300                                      #Chunk overlap mặc định
 CHUNKING_STRATEGY=recursive                            #fixed | recursive | semantic
+DEFAULT_TOP_K=5                                        #Số context chunks mặc định cho chat
 ENABLE_MULTI_VECTOR=true                               #Index thêm summary/hypo-question vectors
 ENABLE_CONTEXT_REORDER=true                            #Reorder context chống lost-in-the-middle
-ENABLE_CONTEXT_COMPRESSION=true                        #Nén context trước khi generate
+ENABLE_CONTEXT_COMPRESSION=false                       #Tắt nén thủ công để giữ context đầy đủ
 CONTEXT_CANDIDATE_POOL=12                              #Số candidate retrieval trước rerank
 CONTEXT_DEDUPE_JACCARD_THRESHOLD=0.82                  #Ngưỡng loại context trùng
 CONTEXT_COMPRESSION_MAX_CHARS=900                      #Giới hạn context sau nén
+LLM_NUM_PREDICT=1536                                   #Số token output tối đa mỗi lần generate
 SELF_RAG_CONFIDENCE_THRESHOLD=0.58                     #Ngưỡng trigger self-rag retry
 VECTOR_DB_PATH=./vector_db                             #Nơi lưu FAISS index
 VECTOR_BACKEND=faiss                                   #faiss | qdrant

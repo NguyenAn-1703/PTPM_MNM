@@ -38,8 +38,9 @@ function App() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isSessionReady, setIsSessionReady] = useState(false);
     const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
-    const [chunkSize, setChunkSize] = useState(1000);
-    const [chunkOverlap, setChunkOverlap] = useState(100);
+    const [chunkSize, setChunkSize] = useState(1500);
+    const [chunkOverlap, setChunkOverlap] = useState(300);
+    const [topK, setTopK] = useState(5);
     const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("hybrid");
     const [useReranker, setUseReranker] = useState(true);
     const [useSelfRag, setUseSelfRag] = useState(true);
@@ -135,6 +136,9 @@ function App() {
             if (typeof res.default_chunk_overlap === "number") {
                 setChunkOverlap(res.default_chunk_overlap);
             }
+            if (typeof res.default_top_k === "number") {
+                setTopK(res.default_top_k);
+            }
         } catch (error) {
             console.error("Error fetching status:", error);
         } finally {
@@ -203,6 +207,7 @@ function App() {
                 activeSessionId,
                 {
                     retrievalMode,
+                    topK,
                     filenames: selectedFilenameFilter !== "all" ? [selectedFilenameFilter] : [],
                     useReranker,
                     useSelfRag,
@@ -230,6 +235,7 @@ function App() {
 
             const res = await api.chat(message, history, activeSessionId, {
                 retrievalMode,
+                topK,
                 filenames: selectedFilenameFilter !== "all" ? [selectedFilenameFilter] : [],
                 useReranker,
                 useSelfRag,
@@ -255,7 +261,7 @@ function App() {
         } finally {
             setIsChatLoading(false);
         }
-    }, [activeSessionId, retrievalMode, selectedFilenameFilter, useReranker, useSelfRag]);
+    }, [activeSessionId, retrievalMode, selectedFilenameFilter, topK, useReranker, useSelfRag]);
 
     const handleResetSessionContext = async () => {
         if (!activeSessionId) return;
@@ -497,6 +503,7 @@ function App() {
                         isOpen={isSettingsOpen}
                         chunkSize={chunkSize}
                         chunkOverlap={chunkOverlap}
+                        topK={topK}
                         retrievalMode={retrievalMode}
                         useReranker={useReranker}
                         useSelfRag={useSelfRag}
@@ -504,12 +511,13 @@ function App() {
                         onApply={(settings) => {
                             setChunkSize(settings.chunkSize);
                             setChunkOverlap(settings.chunkOverlap);
+                            setTopK(settings.topK);
                             setRetrievalMode(settings.retrievalMode);
                             setUseReranker(settings.useReranker);
                             setUseSelfRag(settings.useSelfRag);
                             showNotification(
                                 "success",
-                                `Đã cập nhật: chunk ${settings.chunkSize}/${settings.chunkOverlap}, retrieval ${settings.retrievalMode}, rerank ${settings.useReranker ? "on" : "off"}, self-rag ${settings.useSelfRag ? "on" : "off"}`,
+                                `Đã cập nhật: chunk ${settings.chunkSize}/${settings.chunkOverlap}, top_k ${settings.topK}, retrieval ${settings.retrievalMode}, rerank ${settings.useReranker ? "on" : "off"}, self-rag ${settings.useSelfRag ? "on" : "off"}`,
                             );
                         }}
                     />

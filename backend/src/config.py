@@ -18,12 +18,14 @@ class RAGSettings:
     chunk_size: int
     chunk_overlap: int
     chunking_strategy: str
+    default_top_k: int
     enable_multi_vector: bool
     enable_context_reorder: bool
     enable_context_compression: bool
     context_candidate_pool: int
     context_dedupe_jaccard_threshold: float
     context_compression_max_chars: int
+    llm_num_predict: int
     self_rag_confidence_threshold: float
     vector_backend: str
     enable_qdrant_dual_write: bool
@@ -76,21 +78,24 @@ def get_rag_settings() -> RAGSettings:
     vector_db_setting = _read_django_setting("VECTOR_DB_PATH")
     vector_db_dir = Path(vector_db_setting) if vector_db_setting else BASE_DIR / "vector_db"
 
-    chunk_size = int(os.getenv("CHUNK_SIZE", "1000"))
-    chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "150"))
+    chunk_size = int(os.getenv("CHUNK_SIZE", "1500"))
+    chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "300"))
     chunking_strategy = str(os.getenv("CHUNKING_STRATEGY", "recursive")).strip().lower()
     if chunking_strategy not in {"fixed", "recursive", "semantic"}:
         chunking_strategy = "recursive"
 
+    default_top_k = max(1, int(os.getenv("DEFAULT_TOP_K", "5")))
+
     enable_multi_vector = _read_bool_env("ENABLE_MULTI_VECTOR", True)
     enable_context_reorder = _read_bool_env("ENABLE_CONTEXT_REORDER", True)
-    enable_context_compression = _read_bool_env("ENABLE_CONTEXT_COMPRESSION", True)
+    enable_context_compression = _read_bool_env("ENABLE_CONTEXT_COMPRESSION", False)
 
     context_candidate_pool = max(4, int(os.getenv("CONTEXT_CANDIDATE_POOL", "12")))
     context_dedupe_jaccard_threshold = float(os.getenv("CONTEXT_DEDUPE_JACCARD_THRESHOLD", "0.82"))
     context_dedupe_jaccard_threshold = min(0.99, max(0.2, context_dedupe_jaccard_threshold))
 
     context_compression_max_chars = max(180, int(os.getenv("CONTEXT_COMPRESSION_MAX_CHARS", "900")))
+    llm_num_predict = max(256, int(os.getenv("LLM_NUM_PREDICT", "1536")))
     self_rag_confidence_threshold = float(os.getenv("SELF_RAG_CONFIDENCE_THRESHOLD", "0.58"))
     self_rag_confidence_threshold = min(0.95, max(0.1, self_rag_confidence_threshold))
 
@@ -120,12 +125,14 @@ def get_rag_settings() -> RAGSettings:
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         chunking_strategy=chunking_strategy,
+        default_top_k=default_top_k,
         enable_multi_vector=enable_multi_vector,
         enable_context_reorder=enable_context_reorder,
         enable_context_compression=enable_context_compression,
         context_candidate_pool=context_candidate_pool,
         context_dedupe_jaccard_threshold=context_dedupe_jaccard_threshold,
         context_compression_max_chars=context_compression_max_chars,
+        llm_num_predict=llm_num_predict,
         self_rag_confidence_threshold=self_rag_confidence_threshold,
         vector_backend=vector_backend,
         enable_qdrant_dual_write=enable_qdrant_dual_write,
