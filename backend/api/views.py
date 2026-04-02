@@ -408,6 +408,63 @@ class ClearVectorStoreView(APIView):
             )
 
 
+class DeleteDocumentByFilenameView(APIView):
+    """
+    API endpoint để xóa tài liệu theo filename
+    DELETE /api/documents/delete/
+    """
+
+    parser_classes = [JSONParser]
+
+    def delete(self, request):
+        filename_raw = request.data.get('filename')
+        filename = str(filename_raw or '').strip()
+
+        if not filename:
+            return Response(
+                {"error": "filename không được để trống"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if len(filename) > 255:
+            return Response(
+                {"error": "filename không được dài quá 255 ký tự"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            rag_engine = _get_rag_engine()
+            result = rag_engine.delete_documents_by_filename(filename)
+
+            if result["removed_chunks"] == 0 and result["removed_source_documents"] == 0:
+                return Response(
+                    {"error": "Không tìm thấy tài liệu tương ứng để xóa"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": f"Đã xóa tài liệu: {filename}",
+                    "filename": filename,
+                    "removed_chunks": result["removed_chunks"],
+                    "removed_source_documents": result["removed_source_documents"],
+                    "document_count": result["document_count"],
+                    "uploaded_files": result["uploaded_files"],
+                }
+            )
+        except ValueError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as exc:
+            return Response(
+                {"error": f"Lỗi xóa tài liệu: {str(exc)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class ChunkStrategyEvaluationView(APIView):
     """
     API endpoint để đánh giá chunk strategy

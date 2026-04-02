@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Iterable, List
 
-from .config import get_rag_settings
+from ..config import get_rag_settings
 
 
 SUPPORTED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".png", ".jpg", ".jpeg", ".bmp", ".tiff"}

@@ -74,6 +74,60 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
         self.vector_store = None
         self.storage.clear_vector_store()
 
+    def delete_documents_by_filename(self, filename: str) -> Dict[str, Any]:
+        cleaned_filename = str(filename).strip()
+        if not cleaned_filename:
+            raise ValueError("filename không được để trống")
+
+        removed_source_documents = self.storage.remove_source_documents_by_filename(cleaned_filename)
+
+        if self.vector_store is None:
+            return {
+                "removed_chunks": 0,
+                "removed_source_documents": removed_source_documents,
+                "document_count": 0,
+                "uploaded_files": [],
+            }
+
+        target_doc_ids: List[str] = []
+        for doc_id, doc in self.vector_store.docstore._dict.items():
+            doc_filename = str(doc.metadata.get("filename", "")).strip()
+            if doc_filename == cleaned_filename:
+                target_doc_ids.append(doc_id)
+
+        if target_doc_ids:
+            self.vector_store.delete(ids=target_doc_ids)
+
+        try:
+            remaining_documents = int(self.vector_store.index.ntotal)
+        except Exception:
+            remaining_documents = 0
+
+        if remaining_documents == 0:
+            self.vector_store = None
+            self.storage.clear_vector_store()
+            return {
+                "removed_chunks": len(target_doc_ids),
+                "removed_source_documents": removed_source_documents,
+                "document_count": 0,
+                "uploaded_files": [],
+            }
+
+        self.storage.save_vector_store(self.vector_store)
+
+        filenames = set()
+        for doc in self.vector_store.docstore._dict.values():
+            doc_filename = doc.metadata.get("filename")
+            if doc_filename:
+                filenames.add(str(doc_filename))
+
+        return {
+            "removed_chunks": len(target_doc_ids),
+            "removed_source_documents": removed_source_documents,
+            "document_count": remaining_documents,
+            "uploaded_files": sorted(filenames),
+        }
+
     def get_stats(self) -> Dict[str, Any]:
         source_documents = self.storage.load_source_documents()
         stats = {

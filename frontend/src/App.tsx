@@ -45,6 +45,8 @@ function App() {
     const [useSelfRag, setUseSelfRag] = useState(true);
     const [selectedFilenameFilter, setSelectedFilenameFilter] = useState<string>("all");
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isDocumentDialogOpen, setIsDocumentDialogOpen] = useState(false);
+    const [deletingFilename, setDeletingFilename] = useState<string | null>(null);
     const historyLimit = status?.history_max_messages || 7;
 
     // Load all sessions + active session from sessionStorage
@@ -247,6 +249,36 @@ function App() {
         }
     };
 
+    const handleDeleteDocument = async (filename: string) => {
+        const targetFilename = filename.trim();
+        if (!targetFilename) return;
+
+        if (!confirm(`Bạn có chắc muốn xóa tài liệu \"${targetFilename}\"?`)) return;
+
+        setDeletingFilename(targetFilename);
+        try {
+            const res = await api.deleteDocumentByFilename(targetFilename);
+            if (!res.success) {
+                showNotification("error", res.error || "Xóa tài liệu thất bại");
+                return;
+            }
+
+            showNotification("success", res.message || `Đã xóa tài liệu ${targetFilename}`);
+
+            if (selectedFilenameFilter === targetFilename) {
+                setSelectedFilenameFilter("all");
+            }
+
+            setUploadedFiles(res.uploaded_files || []);
+            setDocumentCount(res.document_count || 0);
+            await fetchStatus();
+        } catch {
+            showNotification("error", "Lỗi khi xóa tài liệu");
+        } finally {
+            setDeletingFilename(null);
+        }
+    };
+
     const resetSessionMemories = useCallback(async (sessionIds: string[]): Promise<number> => {
         const uniqueSessionIds = Array.from(new Set(sessionIds.filter(Boolean)));
         if (uniqueSessionIds.length === 0) {
@@ -427,6 +459,98 @@ function App() {
                         }}
                     />
 
+                    {isDocumentDialogOpen && (
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => setIsDocumentDialogOpen(false)}
+                                className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-[2px]"
+                                aria-label="Đóng quản lý tài liệu"
+                            />
+                            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-5">
+                                <div className="w-full max-w-3xl rounded-3xl border border-slate-200/80 bg-white p-4 shadow-2xl dark:border-slate-700 dark:bg-slate-900 md:p-5">
+                                    <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3 dark:border-slate-700">
+                                        <div>
+                                            <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">Tài liệu</p>
+                                            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Quản lý file đã upload</h3>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Đang có {uploadedFiles.length} file. Bạn có thể chọn lọc nhanh hoặc xóa từng file tại đây.</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsDocumentDialogOpen(false)}
+                                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                                            aria-label="Đóng"
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: "18px" }}>
+                                                close
+                                            </span>
+                                        </button>
+                                    </div>
+
+                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedFilenameFilter("all")}
+                                            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                                selectedFilenameFilter === "all"
+                                                    ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-500/60 dark:bg-sky-500/15 dark:text-sky-300"
+                                                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                                            }`}
+                                        >
+                                            Tất cả file
+                                        </button>
+                                        <FileUpload
+                                            onUpload={handleUpload}
+                                            isUploading={isUploading}
+                                            compact
+                                            chunkSize={chunkSize}
+                                            chunkOverlap={chunkOverlap}
+                                        />
+                                    </div>
+
+                                    <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+                                        {uploadedFiles.length === 0 ? (
+                                            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                                                Chưa có tài liệu nào.
+                                            </div>
+                                        ) : (
+                                            uploadedFiles.map((file) => (
+                                                <div
+                                                    key={file}
+                                                    className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+                                                >
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{file}</p>
+                                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                            {selectedFilenameFilter === file ? "Đang dùng làm bộ lọc" : "Không lọc theo file này"}
+                                                        </p>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSelectedFilenameFilter(file)}
+                                                            className="rounded-full border border-sky-300/80 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100 dark:border-sky-500/50 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20"
+                                                        >
+                                                            Lọc theo file này
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleDeleteDocument(file)}
+                                                            disabled={deletingFilename === file}
+                                                            className="rounded-full border border-rose-300/80 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20"
+                                                        >
+                                                            {deletingFilename === file ? "Đang xóa..." : "Xóa file"}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    )}
+
                     {documentCount === 0 ? (
                         <div className="flex flex-1 items-center justify-center overflow-y-auto px-4 py-8 md:px-8">
                             <div className="w-full max-w-3xl rounded-[30px] border border-slate-200/70 bg-white/85 p-6 shadow-xl shadow-slate-900/5 dark:border-slate-700/70 dark:bg-slate-900/70 md:p-8">
@@ -469,41 +593,55 @@ function App() {
                     ) : (
                         <>
                             <div className="border-b border-slate-200/70 px-3 py-3 dark:border-slate-700/70 md:px-6">
-                                <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2">
-                                    <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Tài liệu</span>
-                                    <label className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                                        <span>Lọc theo file:</span>
-                                        <select
-                                            value={selectedFilenameFilter}
-                                            onChange={(e) => setSelectedFilenameFilter(e.target.value)}
-                                            className="max-w-[180px] bg-transparent text-[11px] outline-none"
-                                        >
-                                            <option value="all">Tất cả</option>
-                                            {uploadedFiles.map((file) => (
-                                                <option key={file} value={file}>
-                                                    {file}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </label>
-                                    {uploadedFiles.map((file, idx) => (
-                                        <span
-                                            key={idx}
-                                            className="inline-flex items-center gap-1 rounded-full border border-emerald-300/70 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300"
+                                <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-2">
+                                    <div className="flex min-w-0 items-center gap-2">
+                                        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Tài liệu</span>
+                                        <span className="truncate rounded-full border border-emerald-300/70 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                            {uploadedFiles.length} file đã upload
+                                        </span>
+                                        {selectedFilenameFilter !== "all" && (
+                                            <span className="truncate rounded-full border border-sky-300/70 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-300">
+                                                Đang lọc: {selectedFilenameFilter}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsDocumentDialogOpen(true)}
+                                            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                                         >
                                             <span className="material-icons-round" style={{ fontSize: "13px" }}>
-                                                check_circle
+                                                inventory_2
                                             </span>
-                                            {file}
-                                        </span>
-                                    ))}
-                                    <FileUpload
-                                        onUpload={handleUpload}
-                                        isUploading={isUploading}
-                                        compact
-                                        chunkSize={chunkSize}
-                                        chunkOverlap={chunkOverlap}
-                                    />
+                                            Quản lý tài liệu
+                                        </button>
+
+                                        <label className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                            <span>Lọc theo file:</span>
+                                            <select
+                                                value={selectedFilenameFilter}
+                                                onChange={(e) => setSelectedFilenameFilter(e.target.value)}
+                                                className="max-w-[180px] bg-transparent text-[11px] outline-none"
+                                            >
+                                                <option value="all">Tất cả</option>
+                                                {uploadedFiles.map((file) => (
+                                                    <option key={file} value={file}>
+                                                        {file}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </label>
+
+                                        <FileUpload
+                                            onUpload={handleUpload}
+                                            isUploading={isUploading}
+                                            compact
+                                            chunkSize={chunkSize}
+                                            chunkOverlap={chunkOverlap}
+                                        />
+                                    </div>
                                 </div>
                             </div>
 

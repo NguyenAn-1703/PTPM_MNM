@@ -87,6 +87,17 @@ export interface ClearSessionMemoryResponse {
     error?: string;
 }
 
+export interface DeleteDocumentResponse {
+    success: boolean;
+    message?: string;
+    filename?: string;
+    removed_chunks?: number;
+    removed_source_documents?: number;
+    document_count?: number;
+    uploaded_files?: string[];
+    error?: string;
+}
+
 export interface StatusResponse {
     success: boolean;
     status: string;
@@ -244,6 +255,18 @@ export const api = {
         const response = await fetch(`${API_BASE_URL}/clear/`, {
             method: "DELETE",
         });
+        return response.json();
+    },
+
+    async deleteDocumentByFilename(filename: string): Promise<DeleteDocumentResponse> {
+        const response = await fetch(`${API_BASE_URL}/documents/delete/`, {
+            method: "DELETE",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ filename }),
+        });
+
         return response.json();
     },
 

@@ -69,6 +69,23 @@ class RagStorage:
         )
         self.save_source_documents(docs)
 
+    def remove_source_documents_by_filename(self, filename: str) -> int:
+        docs = self.load_source_documents()
+        if not docs:
+            return 0
+
+        remaining_docs = [
+            item
+            for item in docs
+            if str((item.get("metadata") or {}).get("filename", "")).strip() != filename
+        ]
+        removed_count = len(docs) - len(remaining_docs)
+
+        if removed_count > 0:
+            self.save_source_documents(remaining_docs)
+
+        return removed_count
+
     def clear_vector_store(self) -> None:
         if self.vector_store_path.exists():
             import shutil

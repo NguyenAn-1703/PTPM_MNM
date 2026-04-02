@@ -48,7 +48,7 @@ def build_chat_answer_prompt(system_prompt: str, history_text: str, context_text
 def build_chat_retry_prompt(system_prompt: str, history_text: str, context_text: str, question: str) -> str:
     return (
         f"SYSTEM PROMPT:\n{system_prompt}\n\n"
-        "Hãy suy luận theo nhiều bước ngắn gọn và chỉ dùng dữ kiện có trong context.\n\n"
+        "Hãy suy luận như một chuyên gia và chỉ dùng dữ kiện có trong context.\n\n"
         f"CHAT HISTORY:\n{history_text}\n\n"
         f"RAG CONTEXT:\n{context_text}\n\n"
         f"QUESTION:\n{question}\n\n"

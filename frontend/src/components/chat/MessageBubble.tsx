@@ -10,10 +10,12 @@ interface MessageBubbleProps {
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, expandedContext, onToggleContext }) => {
     const isUser = message.role === "user";
+    type PanelType = "debug" | "references" | "origins" | null;
     const [selectedContextIndex, setSelectedContextIndex] = useState<number | null>(null);
-    const [showSourceOrigins, setShowSourceOrigins] = useState(false);
-    const [showDebugPanel, setShowDebugPanel] = useState(false);
-    const isReferenceOpen = expandedContext === message.id;
+    const [activePanel, setActivePanel] = useState<PanelType>(null);
+    const isReferenceOpen = activePanel === "references" && expandedContext === message.id;
+    const isSourceOriginsOpen = activePanel === "origins";
+    const isDebugPanelOpen = activePanel === "debug";
 
     const selectedContext = useMemo(() => {
         if (selectedContextIndex === null || !message.contexts) {
@@ -78,23 +80,25 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, ex
     const handleToggleReferences = () => {
         if (isReferenceOpen) {
             onToggleContext(null);
+            setActivePanel(null);
             setSelectedContextIndex(null);
             return;
         }
 
         onToggleContext(message.id);
-        setShowSourceOrigins(false);
+        setActivePanel("references");
+        setSelectedContextIndex(null);
     };
 
     const handleToggleSourceOrigins = () => {
-        setShowSourceOrigins((prev) => {
-            const next = !prev;
-            if (next) {
-                onToggleContext(null);
-                setSelectedContextIndex(null);
-            }
-            return next;
-        });
+        if (isSourceOriginsOpen) {
+            setActivePanel(null);
+            return;
+        }
+
+        onToggleContext(null);
+        setSelectedContextIndex(null);
+        setActivePanel("origins");
     };
 
     return (
@@ -153,14 +157,23 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, ex
                                 {message.standaloneQuestion && (
                                     <button
                                         type="button"
-                                        onClick={() => setShowDebugPanel((prev) => !prev)}
+                                        onClick={() => {
+                                            if (isDebugPanelOpen) {
+                                                setActivePanel(null);
+                                                return;
+                                            }
+
+                                            onToggleContext(null);
+                                            setSelectedContextIndex(null);
+                                            setActivePanel("debug");
+                                        }}
                                         className="inline-flex items-center gap-1.5 rounded-full border border-violet-200/80 bg-violet-50 px-3 py-1 text-[11px] font-semibold text-violet-700 transition hover:bg-violet-100 dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20"
                                     >
                                         <span className="material-icons-round" style={{ fontSize: "13px" }}>
                                             bug_report
                                         </span>
                                         Debug follow-up
-                                        <span className={`material-icons-round transition-transform ${showDebugPanel ? "rotate-180" : ""}`} style={{ fontSize: "14px" }}>
+                                        <span className={`material-icons-round transition-transform ${isDebugPanelOpen ? "rotate-180" : ""}`} style={{ fontSize: "14px" }}>
                                             expand_more
                                         </span>
                                     </button>
@@ -188,20 +201,20 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, ex
                                         pin_drop
                                     </span>
                                     Hiển thị nguồn gốc
-                                    <span className={`material-icons-round transition-transform ${showSourceOrigins ? "rotate-180" : ""}`} style={{ fontSize: "14px" }}>
+                                    <span className={`material-icons-round transition-transform ${isSourceOriginsOpen ? "rotate-180" : ""}`} style={{ fontSize: "14px" }}>
                                         expand_more
                                     </span>
                                 </button>
                             </div>
 
-                            {showDebugPanel && message.standaloneQuestion && (
+                            {isDebugPanelOpen && message.standaloneQuestion && (
                                 <div className="mt-2 rounded-2xl border border-violet-200/80 bg-violet-50/60 p-3 dark:border-violet-500/35 dark:bg-violet-500/10">
                                     <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-violet-700 dark:text-violet-300">Standalone question</p>
                                     <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-slate-700 dark:text-slate-100">{message.standaloneQuestion}</p>
                                 </div>
                             )}
 
-                            {showSourceOrigins && (
+                            {isSourceOriginsOpen && (
                                 <div className="mt-2 grid grid-cols-1 gap-2 rounded-2xl border border-sky-200/70 bg-sky-50/50 p-3 dark:border-sky-500/30 dark:bg-sky-500/10">
                                     {message.contexts.map((ctx, idx) => (
                                         <div key={`source-origin-${idx}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
@@ -213,7 +226,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, ex
                                                 type="button"
                                                 onClick={() => {
                                                     onToggleContext(message.id);
-                                                    setShowSourceOrigins(false);
+                                                    setActivePanel("references");
                                                     setSelectedContextIndex(idx);
                                                 }}
                                                 className="rounded-full border border-slate-300 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"

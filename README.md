@@ -1,15 +1,18 @@
 <div align="center">
 
-# RAG Assistant - AI-Powered Document Q&A System
+# RAG Assistant — Document Q&A System
+
+**Hệ thống hỏi đáp tài liệu theo kiến trúc RAG** cho môi trường học tập và triển khai nội bộ, hỗ trợ upload nhiều định dạng, OCR, memory hội thoại, benchmark retrieval và chunk strategy.
 
 <br/>
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![React](https://img.shields.io/badge/React-19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Django](https://img.shields.io/badge/Django-092E20?style=for-the-badge&logo=django&logoColor=white)](https://www.djangoproject.com/)
-[![Ollama](https://img.shields.io/badge/Ollama-White?style=for-the-badge&logo=ollama&logoColor=black)](https://ollama.ai/)
-[![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white)](https://langchain.com/)
+[![Django](https://img.shields.io/badge/Django-REST-092E20?style=for-the-badge&logo=django&logoColor=white)](https://www.djangoproject.com/)
+[![React](https://img.shields.io/badge/React-19-20232A?style=for-the-badge&logo=react)](https://reactjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-7-646CFF?style=for-the-badge&logo=vite)](https://vitejs.dev/)
+[![Ollama](https://img.shields.io/badge/Ollama-Local-000000?style=for-the-badge&logo=ollama)](https://ollama.ai/)
+[![FAISS](https://img.shields.io/badge/FAISS-VectorDB-2D3748?style=for-the-badge)](https://github.com/facebookresearch/faiss)
 
 </div>
 
@@ -17,127 +20,188 @@
 
 ## Giới thiệu dự án
 
-> **RAG Assistant** là một hệ thống hỏi đáp và phân tích tài liệu thông minh (Q&A System), vận hành dựa trên sức mạnh của AI và kiến trúc **RAG (Retrieval-Augmented Generation)**.
+RAG Assistant là dự án full-stack tách lớp rõ ràng:
+- Backend Django REST xử lý ingestion, retrieval, generation.
+- Frontend React + TypeScript cung cấp giao diện chat, upload, filter và quản trị tài liệu.
 
-Dự án tập trung vào các tính năng cốt lõi:
-
-- Giao diện UI/UX trực quan, hiện đại, tối ưu trải nghiệm với **React 19, TypeScript** và **Tailwind CSS**.
-- Hệ thống hỗ trợ phong phú định dạng tài liệu: **PDF, Word (DOCX/DOC)**, phân tích và trích xuất cả thông tin văn bản từ hình ảnh (OCR) thông qua `pytesseract`.
-- Cấu trúc Backend linh hoạt xây dựng trên **Django** & **Django REST Framework**.
-- Tìm kiếm vector ngữ nghĩa siêu tốc độ với **FAISS** và mô hình nhúng `nomic-embed-text`.
-- Trả lời nhanh chóng, chính xác nhờ mô hình ngôn ngữ lớn **Qwen2.5 (7B)** tích hợp local thông qua sức mạnh từ **Ollama** và **LangChain**.
+Hệ thống phù hợp cho:
+- Hỏi đáp theo tài liệu nội bộ.
+- Kiểm thử chất lượng retrieval theo nhiều cấu hình.
+- Demo luồng RAG có memory hội thoại và self-check confidence.
 
 ---
 
 <div align="center">
 
-![RAG Process Architecture](./docs/RAG.png) <!-- Kiến trúc xử lý luồng hệ thống RAG -->
+![RAG Process Architecture](./docs/RAG.png)
 
 </div>
 
 ---
 
+## Tính năng nổi bật
+
+### Dành cho người dùng
+
+| Tính năng | Mô tả |
+|---|---|
+| Upload tài liệu | Upload 1 hoặc nhiều file qua field `files` hoặc `file` |
+| Hỏi đáp theo ngữ cảnh | Chat dựa trên context đã index từ tài liệu upload |
+| Conversational memory | Gửi `session_id` + `history` để follow-up question ổn định hơn |
+| Metadata filtering | Lọc retrieval theo `filenames` và `file_types` |
+| Quản lý tài liệu đã nạp | Xóa tài liệu theo `filename` qua API riêng |
+
+### Dành cho kỹ thuật / vận hành
+
+| Tính năng | Mô tả |
+|---|---|
+| System status | Trả về model, vector DB, số lượng tài liệu, danh sách file đã index |
+| Clear vector store | Reset toàn bộ FAISS index nhanh qua endpoint `DELETE /api/clear/` |
+| Chunk strategy benchmark | Đánh giá nhiều tổ hợp `chunk_size/chunk_overlap` theo `evaluation_set` |
+| Retrieval mode benchmark | So sánh `vector`, `hybrid`, `hybrid_rerank` theo accuracy + latency |
+| Session memory reset | Xóa memory theo `session_id` cho từng cuộc hội thoại |
+
+---
+
+## So sánh retrieval mode
+
+| Mode | Cơ chế | Điểm mạnh | Trade-off |
+|---|---|---|---|
+| `vector` | Similarity thuần embedding | Nhanh, đơn giản | Có thể hụt keyword đặc thù |
+| `hybrid` | Vector + keyword | Cân bằng tốt precision/recall | Phức tạp hơn vector thuần |
+| `hybrid_rerank` | Hybrid + rerank | Kết quả top đầu chất lượng hơn | Độ trễ cao hơn |
+
+---
+
 ## Kiến trúc hệ thống
 
-Dự án được phân tách cấu trúc rõ ràng giữa frontend và backend thuận tiện cho việc nâng cấp & mở rộng:
-
 ```text
-RAG_Assistant/
-├── backend/                    # Core Django Backend
-│   ├── api/                    # Xử lý Logic & APIs
-│   ├── src/                    # RAG core modules (config/loader/processor/database/...)
-│   ├── data/
-│   │   ├── raw/                # Tài liệu đầu vào thô
-│   │   └── processed/          # Dữ liệu đã xử lý (tùy chọn)
-│   ├── rag_project/            # Cấu hình dự án Django
-│   ├── vector_db/              # Nơi lưu trữ vector FAISS database
-│   ├── requirements.txt        # Các gói thư viện phụ thuộc
-│   └── manage.py               # Khởi chạy hệ thống server
-│
-├── frontend/                   # UI/UX với React + TypeScript
-│   ├── src/                    # Mã nguồn giao diện chính
-│   └── package.json            # Thư viện Frontend (Node.js)
-│
-├── img/                        # Hình ảnh mô phỏng kiến trúc
-│   └── RAG.png                 # Sơ đồ khối hoạt động (Architecture Process)
-└── README.md                   # Thông tin đầy đủ dự án
+PTPM_MNM/
+├── backend/                        # Django + DRF API
+│   ├── api/                        # URL routing + API views
+│   ├── src/
+│   │   ├── ingestion/              # OCR + document processing
+│   │   └── rag/                    # Retrieval, indexing, memory, evaluation
+│   ├── rag_project/                # Django settings
+│   ├── vector_db/                  # FAISS index + source_documents.json
+│   ├── requirements.txt
+│   └── manage.py
+├── frontend/                       # React + TypeScript + Vite
+│   ├── src/components/
+│   ├── src/services/api.ts         # Typed API contracts
+│   └── package.json
+└── README.md
 ```
 
 ---
 
-## Cấu hình hệ thống linh hoạt
+## API
 
-Hệ thống cho phép điều chỉnh các tham số cấu hình nhanh chóng giúp tối ưu quá trình vận hành & truy xuất:
+Base URL: `http://localhost:8000/api`
 
-| Tham số cấu hình | Giá trị mặc định | Diễn giải chức năng |
-|-----------|---------|-------------|
-| `OLLAMA_LLM` | `qwen2.5:7b` | LLM dùng để tự động thiết lập câu trả lời |
-| `EMBEDDING_MODEL` | `nomic-embed-text` | Mô hình vector hóa thông tin dữ liệu thô |
-| Chunk size | 1000 chars (mặc định, có thể tùy chỉnh khi upload) | Kích thước khi chia nhỏ định trang văn bản tải lên |
-| Chunk overlap | 150 chars (mặc định, có thể tùy chỉnh khi upload) | Khoảng đệm giữ lại giữa các chunk liên tiếp |
-| Top-K retrieval | 3 | Trả về 3 ngữ cảnh chính xác nhất hỗ trợ câu hỏi |
-| Max chat history | 7 messages | Bộ nhớ Contextual hạn chế ghi nhớ lịch sử cuộc hội thoại |
-| Session memory TTL | 6 giờ | Backend lưu memory theo `session_id` để xử lý follow-up questions ổn định hơn |
+| Endpoint | Method | Mô tả | Payload chính |
+|---|---|---|---|
+| `/upload/` | POST | Upload + index tài liệu | `file`/`files`, `chunk_size`, `chunk_overlap` |
+| `/chat/` | POST | Hỏi đáp theo RAG | `question`, `history`, `session_id`, `retrieval_mode`, `filenames`, `file_types`, `use_reranker`, `use_self_rag` |
+| `/chat/memory/clear/` | POST | Reset memory theo session | `session_id` |
+| `/status/` | GET | Kiểm tra trạng thái runtime | None |
+| `/clear/` | DELETE | Xóa toàn bộ vector store | None |
+| `/documents/delete/` | DELETE | Xóa tài liệu theo tên file | `filename` |
+| `/chunk-strategy/evaluate/` | POST | Benchmark chunk strategy | `evaluation_set`, `chunk_sizes`, `chunk_overlaps`, `top_k` |
+| `/retrieval/benchmark/` | POST | Benchmark retrieval mode | `evaluation_set`, `retrieval_modes`, `top_k`, `filenames`, `file_types` |
 
-API đánh giá chunk strategy hỗ trợ benchmark các tổ hợp `chunk_size/chunk_overlap` và trả report `retrieval_accuracy` tại endpoint `POST /api/chunk-strategy/evaluate/`.
+---
 
-`POST /api/chat/` hỗ trợ conversational RAG: có thể gửi `session_id` để backend theo dõi ngữ cảnh theo từng cuộc hội thoại, đồng thời trả về `standalone_question` (câu hỏi follow-up đã được rewrite thành câu độc lập trước khi retrieval). Để reset ngữ cảnh một phiên ngay trên UI, backend cung cấp thêm endpoint `POST /api/chat/memory/clear/`.
+## Cấu hình môi trường
+Tạo file `.env` trong thư mục `backend/` theo `.env.example`.
+```bash
+SECRET_KEY=your-secret-key-here-change-in-production    #Django secret key
+DEBUG=True                                              #Bật/tắt debug
 
-Phiên bản hiện tại cũng hỗ trợ nâng cao:
+# Ollama Configuration
+OLLAMA_BASE_URL=http://localhost:11434                 #URL Ollama server
+OLLAMA_LLM=deepseek-r1:7b                              #LLM dùng để generate
+EMBEDDING_MODEL=nomic-embed-text                       #Model embedding  
+CHUNK_SIZE=1000                                        #Chunk size mặc định
+CHUNK_OVERLAP=150                                      #Chunk overlap mặc định
+VECTOR_DB_PATH=./vector_db                             #Nơi lưu FAISS index
 
-- Hybrid search (`vector + keyword`) và metadata filtering theo `filenames/file_types`
-- Cross-encoder reranking (có fallback lexical nếu model không khả dụng)
-- Self-RAG tối giản: tự đánh giá câu trả lời, rewrite truy vấn và retry 1 vòng khi confidence thấp
-- Trả về `confidence_score` + `confidence_label` để theo dõi độ tin cậy
-- Upload nhiều file trong một request tại `POST /api/upload/` (field `files`)
-- Benchmark định lượng retrieval mode tại `POST /api/retrieval/benchmark/` (vector vs hybrid vs hybrid+rerank)
+# Windows only : TESSERACT_CMD=C:\\Program Files\\Tesseract-OCR\\tesseract.exe
+TESSERACT_CMD=YOUR_TESSERACT_PATH_HERE                 #Path Tesseract (nếu cần chỉ định)
+```
+
+> Lưu ý dev: `ALLOWED_HOSTS=['*']` và `CORS_ALLOW_ALL_ORIGINS=True` đang mở để tiện local development.
 
 ---
 
 ## Hướng dẫn cài đặt
 
-#### 1. Yêu cầu hệ thống (Prerequisites)
+### Yêu cầu hệ thống
 
-- **Python 3.10+** (để khởi chạy Backend và bộ RAG AI)
-- **Node.js 18+** (cho nền tảng vận hành Frontend)
-- [Ollama](https://ollama.ai) đã cài đặt, phục vụ local (`qwen2.5:7b`, `nomic-embed-text`)
-- Phần mềm **Tesseract OCR** đã thiết lập vào Environment Variables
+| Thành phần | Yêu cầu |
+|---|---|
+| Python | `>= 3.10` |
+| Node.js | `>= 18` |
+| Tesseract OCR | Có cài `tesseract-ocr`, `tesseract-ocr-vie`, `tesseract-ocr-eng` |
+| Ollama | Đang chạy local + có model cần thiết |
 
-#### 2. Clone repository
+### 1) Clone repository
 
 ```bash
 git clone https://github.com/NguyenAn-1703/PTPM_MNM.git
 cd PTPM_MNM
 ```
 
-#### 3. Sử dụng & Cài đặt môi trường Backend
+### 2) Cài và chạy backend
 
 ```bash
 cd backend
-
-python -m venv venv
-# Đối với Windows:
-venv\Scripts\activate
-# Đối với MacOS/Linux:
+python3 -m venv venv
 source venv/bin/activate
-
+pip install --upgrade pip
 pip install -r requirements.txt
-
-# Khởi chạy ứng dụng server local:
-python manage.py runserver
+python3 manage.py migrate
+python3 manage.py runserver
 ```
 
-#### 4. Sử dụng & Cài đặt giao diện Frontend
+### 3) Cài và chạy frontend
 
 ```bash
 cd frontend
-
 npm install
-
 npm run dev
 ```
+
+Ứng dụng chạy tại:
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:8000/api`
+
+---
+
+## Bảng lệnh nhanh
+
+### Backend
+
+| Mục tiêu | Lệnh |
+|---|---|
+| Chạy server | `python3 manage.py runserver` |
+| Kiểm tra cấu hình Django | `python3 manage.py check` |
+| Test OCR | `python3 test_ocr.py` |
+| Benchmark chunk bằng script | `python3 test_chunk_strategy.py --evaluation-file evaluation_set.json` |
+
+### Frontend
+
+| Mục tiêu | Lệnh |
+|---|---|
+| Chạy dev | `npm run dev` |
+| Lint | `npm run lint` |
+| Build | `npm run build` |
+| Preview | `npm run preview` |
+
 ---
 
 <div align="center">
-⭐ Nếu bạn thích dự án này, hãy cho nó một star nhé!
+
+ Nếu dự án này hữu ích, hãy để lại một star. ⭐
+
 </div>
