@@ -4,6 +4,7 @@ API Views for RAG System
 import json
 import logging
 import os
+import shutil
 import tempfile
 from datetime import datetime
 from typing import List
@@ -615,15 +616,52 @@ class ClearVectorStoreView(APIView):
     API endpoint để xóa vector store
     DELETE /api/clear/
     """
+    parser_classes = [JSONParser]
+
+    @staticmethod
+    def _clear_local_data_directories():
+        from src.config import get_rag_settings
+
+        cfg = get_rag_settings()
+        target_dirs = [cfg.data_raw_dir, cfg.data_processed_dir]
+        cleared_dirs = []
+
+        for target_dir in target_dirs:
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            target_dir.mkdir(parents=True, exist_ok=True)
+            cleared_dirs.append(str(target_dir))
+
+        return cleared_dirs
+
     def delete(self, request):
         try:
+            clear_local_data_raw = request.data.get('clear_local_data', request.query_params.get('clear_local_data'))
+            clear_local_data = False
+            if clear_local_data_raw not in (None, ''):
+                clear_local_data = _parse_bool(clear_local_data_raw, 'clear_local_data')
+
             rag_engine = _get_rag_engine()
             rag_engine.clear_vector_store()
-            
-            return Response({
+
+            response_payload = {
                 "success": True,
-                "message": "Đã xóa toàn bộ dữ liệu vector store"
-            })
+                "message": "Đã xóa toàn bộ dữ liệu vector store",
+                "cleared_local_data": False,
+            }
+
+            if clear_local_data:
+                cleared_dirs = self._clear_local_data_directories()
+                response_payload["message"] = "Đã xóa vector store và dữ liệu local"
+                response_payload["cleared_local_data"] = True
+                response_payload["cleared_local_directories"] = cleared_dirs
+            
+            return Response(response_payload)
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             return Response(
                 {"error": f"Lỗi xóa vector store: {str(e)}"},

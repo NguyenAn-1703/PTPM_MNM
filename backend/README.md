@@ -451,6 +451,16 @@ Trả về `text/event-stream` với các event:
 ### 6. Clear Vector Store
 **DELETE** `/api/clear/`
 
+Có thể bật xóa sạch dữ liệu local:
+
+```json
+{
+  "clear_local_data": true
+}
+```
+
+- `clear_local_data` (optional, boolean): nếu `true` sẽ xóa thêm toàn bộ file trong `data/raw` và `data/processed`, sau đó tạo lại 2 thư mục rỗng.
+
 ---
 
 ### 7. Delete Document

@@ -56,7 +56,7 @@ Hệ thống phù hợp cho:
 | Tính năng | Mô tả |
 |---|---|
 | System status | Trả về model, vector DB, số lượng tài liệu, danh sách file đã index |
-| Clear vector store | Reset toàn bộ FAISS index nhanh qua endpoint `DELETE /api/clear/` |
+| Clear vector store | Reset toàn bộ FAISS index; có thể xóa thêm data local qua `DELETE /api/clear/?clear_local_data=true` |
 | Chunk strategy benchmark | Đánh giá nhiều tổ hợp `chunk_size/chunk_overlap` theo `evaluation_set` |
 | Retrieval mode benchmark | So sánh `vector`, `hybrid`, `hybrid_rerank` theo accuracy + latency |
 | Session memory reset | Xóa memory theo `session_id` cho từng cuộc hội thoại |
@@ -106,7 +106,7 @@ Base URL: `http://localhost:8000/api`
 | `/chat/stream/` | POST | Hỏi đáp streaming (SSE) | Payload tương tự `/chat/` |
 | `/chat/memory/clear/` | POST | Reset memory theo session | `session_id` |
 | `/status/` | GET | Kiểm tra trạng thái runtime | None |
-| `/clear/` | DELETE | Xóa toàn bộ vector store | None |
+| `/clear/` | DELETE | Xóa vector store, tùy chọn xóa thêm `data/raw` và `data/processed` | `clear_local_data` (optional, boolean) |
 | `/documents/delete/` | DELETE | Xóa tài liệu theo tên file | `filename` |
 | `/chunk-strategy/evaluate/` | POST | Benchmark chunk strategy | `evaluation_set`, `chunk_sizes`, `chunk_overlaps`, `top_k` |
 | `/retrieval/benchmark/` | POST | Benchmark retrieval mode | `evaluation_set`, `retrieval_modes`, `top_k`, `filenames`, `file_types` |
