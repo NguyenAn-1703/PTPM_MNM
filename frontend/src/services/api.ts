@@ -1,6 +1,6 @@
 const API_BASE_URL = "http://localhost:8000/api";
 
-export type RetrievalMode = "vector" | "hybrid" | "hybrid_multivector";
+export type RetrievalMode = "vector" | "hybrid" | "hybrid_rerank" | "hybrid_multivector";
 
 export interface UploadResponse {
     success: boolean;
@@ -66,6 +66,7 @@ export interface ChatResponse {
     applied_filters?: {
         filenames?: string[];
         file_types?: string[];
+        owner_session_ids?: string[];
         tags?: string[];
         page_from?: number | null;
         page_to?: number | null;
@@ -148,6 +149,7 @@ export interface StatusResponse {
     ollama_url: string;
     supported_retrieval_modes?: RetrievalMode[];
     cross_encoder_model?: string;
+    cross_encoder_enabled?: boolean;
     history_max_messages?: number;
     default_chunk_size?: number;
     default_chunk_overlap?: number;
@@ -230,6 +232,7 @@ export interface RetrievalBenchmarkResponse {
     applied_filters: {
         filenames: string[];
         file_types: string[];
+        owner_session_ids?: string[];
         tags?: string[];
         page_from?: number | null;
         page_to?: number | null;
@@ -248,7 +251,7 @@ export interface RetrievalBenchmarkResponse {
 }
 
 export const api = {
-    async uploadFiles(files: File[], options?: { chunkSize?: number; chunkOverlap?: number }): Promise<UploadResponse> {
+    async uploadFiles(files: File[], options?: { chunkSize?: number; chunkOverlap?: number; sessionId?: string }): Promise<UploadResponse> {
         const formData = new FormData();
         files.forEach((file) => formData.append("files", file));
         if (options?.chunkSize) {
@@ -256,6 +259,9 @@ export const api = {
         }
         if (typeof options?.chunkOverlap === "number") {
             formData.append("chunk_overlap", String(options.chunkOverlap));
+        }
+        if (options?.sessionId) {
+            formData.append("session_id", options.sessionId);
         }
 
         const response = await fetch(`${API_BASE_URL}/upload/`, {
@@ -266,7 +272,7 @@ export const api = {
         return response.json();
     },
 
-    async uploadFile(file: File, options?: { chunkSize?: number; chunkOverlap?: number }): Promise<UploadResponse> {
+    async uploadFile(file: File, options?: { chunkSize?: number; chunkOverlap?: number; sessionId?: string }): Promise<UploadResponse> {
         return this.uploadFiles([file], options);
     },
 
@@ -296,6 +302,7 @@ export const api = {
                 top_k: options?.topK,
                 filenames: options?.filenames || [],
                 file_types: options?.fileTypes || [],
+                owner_session_ids: sessionId ? [sessionId, "legacy"] : [],
                 use_reranker: options?.useReranker ?? true,
                 use_self_rag: options?.useSelfRag ?? true,
             }),
@@ -332,6 +339,7 @@ export const api = {
                 top_k: options?.topK,
                 filenames: options?.filenames || [],
                 file_types: options?.fileTypes || [],
+                owner_session_ids: sessionId ? [sessionId, "legacy"] : [],
                 use_reranker: options?.useReranker ?? true,
                 use_self_rag: options?.useSelfRag ?? true,
             }),

@@ -21,6 +21,7 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
     """Core RAG orchestration: indexing, retrieval, and answer generation."""
 
     def __init__(self):
+        self.legacy_owner_session_id = "legacy"
         cfg = get_rag_settings()
         self.vector_store_path = cfg.vector_db_dir
         self.ollama_base_url = cfg.ollama_base_url
@@ -32,8 +33,10 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
             from django.conf import settings
 
             self.cross_encoder_model = getattr(settings, "CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+            self.cross_encoder_enabled = bool(getattr(settings, "ENABLE_CROSS_ENCODER", False))
         except Exception:
             self.cross_encoder_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            self.cross_encoder_enabled = False
         self._cross_encoder = None
 
         self.embeddings = get_embeddings()
@@ -57,6 +60,8 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
 
         self.storage = get_storage(self.vector_store_path)
         self.vector_store: Optional[Any] = self.storage.load_vector_store(self.embeddings)
+        self.backfilled_source_documents = self.storage.backfill_owner_session_id(self.legacy_owner_session_id)
+        self.backfilled_vector_documents = self._backfill_vector_store_owner_session_id(self.legacy_owner_session_id)
         self._vector_revision = 0
         self._invalidate_retrieval_cache()
         qdrant_enabled = (
@@ -95,6 +100,30 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
             max_memory_sessions=200,
             session_ttl_seconds=6 * 60 * 60,
         )
+
+    def _backfill_vector_store_owner_session_id(self, default_owner_session_id: str = "legacy") -> int:
+        if self.vector_store is None:
+            return 0
+
+        updated = 0
+        try:
+            for doc in self.vector_store.docstore._dict.values():
+                metadata = doc.metadata or {}
+                owner_session_id = str(metadata.get("owner_session_id", "")).strip()
+                if owner_session_id:
+                    continue
+
+                metadata["owner_session_id"] = default_owner_session_id
+                doc.metadata = metadata
+                updated += 1
+
+            if updated > 0:
+                self.storage.save_vector_store(self.vector_store)
+        except Exception as exc:
+            logger.warning("Không thể backfill owner_session_id cho vector store: %s", exc)
+            return 0
+
+        return updated
 
     @property
     def session_ttl_seconds(self) -> int:
@@ -193,8 +222,9 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
             "vector_db": "Qdrant" if self.vector_backend == "qdrant" else "FAISS",
             "vector_backend": self.vector_backend,
             "ollama_url": self.ollama_base_url,
-            "supported_retrieval_modes": ["vector", "hybrid", "hybrid_multivector"],
+            "supported_retrieval_modes": ["vector", "hybrid", "hybrid_rerank", "hybrid_multivector"],
             "cross_encoder_model": self.cross_encoder_model,
+            "cross_encoder_enabled": self.cross_encoder_enabled,
             "history_max_messages": self.history_max_messages,
             "memory_session_ttl_seconds": self.session_ttl_seconds,
             "default_chunk_size": self.chunk_size,
@@ -214,6 +244,9 @@ class RAGEngine(RAGChatPipelineMixin, RAGRetrievalMixin, RAGSelfRAGMixin, RAGInd
             "uploaded_files": [],
             "source_document_count": len(source_documents),
             "active_memory_sessions": self.memory.active_sessions(),
+            "legacy_owner_session_id": self.legacy_owner_session_id,
+            "backfilled_source_documents": self.backfilled_source_documents,
+            "backfilled_vector_documents": self.backfilled_vector_documents,
             "retrieval_cache": self._retrieval_cache_stats(),
         }
 

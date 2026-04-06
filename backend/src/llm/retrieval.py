@@ -164,6 +164,7 @@ class RAGRetrievalMixin:
         metadata = metadata or {}
         filenames = set(filters.get("filenames") or [])
         file_types = set(filters.get("file_types") or [])
+        owner_session_ids = set(filters.get("owner_session_ids") or [])
         vector_roles = set(filters.get("vector_roles") or [])
         tags = set(filters.get("tags") or [])
         page_from = filters.get("page_from")
@@ -172,6 +173,8 @@ class RAGRetrievalMixin:
         if filenames and str(metadata.get("filename", "")) not in filenames:
             return False
         if file_types and str(metadata.get("file_type", "")) not in file_types:
+            return False
+        if owner_session_ids and str(metadata.get("owner_session_id", "")) not in owner_session_ids:
             return False
 
         role = str(metadata.get("vector_role") or "content")
@@ -219,7 +222,7 @@ class RAGRetrievalMixin:
         if self._cross_encoder is not None:
             return self._cross_encoder
 
-        cross_encoder_enabled = bool(getattr(settings, "ENABLE_CROSS_ENCODER", False))
+        cross_encoder_enabled = bool(getattr(self, "cross_encoder_enabled", getattr(settings, "ENABLE_CROSS_ENCODER", False)))
         if not cross_encoder_enabled:
             self._cross_encoder = False
             return None

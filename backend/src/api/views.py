@@ -3,10 +3,8 @@ API Views for RAG System
 """
 import json
 import logging
-import os
+import re
 import shutil
-import tempfile
-from datetime import datetime
 from typing import List
 from django.conf import settings
 from django.http import StreamingHttpResponse
@@ -17,11 +15,15 @@ from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework import status
 import uuid
 
+from src.controllers import ChatFlowController
+from src.services import upload_service
+
 
 logger = logging.getLogger(__name__)
 
 
-ALLOWED_RETRIEVAL_MODES = {'vector', 'hybrid', 'hybrid_multivector'}
+ALLOWED_RETRIEVAL_MODES = {'vector', 'hybrid', 'hybrid_rerank', 'hybrid_multivector'}
+LEGACY_OWNER_SESSION_ID = "legacy"
 
 
 class ServerSentEventRenderer(BaseRenderer):
@@ -104,8 +106,40 @@ def _parse_trace_id(request) -> str:
 def _parse_retrieval_mode(value) -> str:
     mode = str(value or 'hybrid').strip().lower()
     if mode not in ALLOWED_RETRIEVAL_MODES:
-        raise ValueError("retrieval_mode phải là vector, hybrid hoặc hybrid_multivector")
+        raise ValueError("retrieval_mode phải là vector, hybrid, hybrid_rerank hoặc hybrid_multivector")
     return mode
+
+
+def _error_response(message: str, status_code: int, error_code: str, details=None):
+    payload = {
+        "success": False,
+        "error": message,
+        "error_code": error_code,
+    }
+    if details is not None:
+        payload["error_details"] = details
+    return Response(payload, status=status_code)
+
+
+def _parse_session_id(session_id_raw, required: bool = False):
+    if session_id_raw in (None, ""):
+        if required:
+            raise ValueError("session_id không được để trống")
+        return None
+
+    session_id = str(session_id_raw).strip()
+    if not session_id:
+        if required:
+            raise ValueError("session_id không được để trống")
+        return None
+
+    if len(session_id) > 128:
+        raise ValueError("session_id không được dài quá 128 ký tự")
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", session_id):
+        raise ValueError("session_id chỉ được chứa chữ, số, dấu gạch ngang và gạch dưới")
+
+    return session_id
 
 
 def _parse_non_empty_list(value, field_name: str) -> list:
@@ -118,6 +152,7 @@ def _build_metadata_filters(request_data) -> dict:
     metadata_filters = {
         "filenames": _parse_string_list(request_data.get("filenames", [])),
         "file_types": _parse_string_list(request_data.get("file_types", [])),
+        "owner_session_ids": _parse_string_list(request_data.get("owner_session_ids", [])),
         "tags": _parse_string_list(request_data.get("tags", [])),
         "uploaded_after": str(request_data.get("uploaded_after", "")).strip() or None,
         "uploaded_before": str(request_data.get("uploaded_before", "")).strip() or None,
@@ -140,126 +175,37 @@ class UploadDocumentView(APIView):
     """
     parser_classes = [MultiPartParser, FormParser]
     
-    ALLOWED_EXTENSIONS = ['pdf', 'docx', 'doc', 'png', 'jpg', 'jpeg', 'bmp', 'tiff']
-    IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'bmp', 'tiff']
-
-    def _process_single_file(self, uploaded_file, chunk_size, chunk_overlap):
-        from src.ingestion.document_processor import extract_pdf_text_with_pages, process_document, get_file_extension
-        from src.ingestion.archive import persist_uploaded_artifacts
-
-        filename = uploaded_file.name
-        file_ext = get_file_extension(filename)
-
-        if file_ext not in self.ALLOWED_EXTENSIONS:
-            raise ValueError(f"Định dạng file không hỗ trợ: {file_ext}. Chỉ hỗ trợ: {', '.join(self.ALLOWED_EXTENSIONS)}")
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_ext}') as tmp_file:
-            for chunk in uploaded_file.chunks():
-                tmp_file.write(chunk)
-            tmp_path = tmp_file.name
-
-        try:
-            source_segments = None
-            if file_ext == 'pdf':
-                pdf_data = extract_pdf_text_with_pages(tmp_path)
-                text = str(pdf_data.get("text", ""))
-                source_segments = pdf_data.get("pages") or []
-            else:
-                text = process_document(tmp_path, file_ext)
-
-            if not text.strip():
-                error_message = "Không thể trích xuất text từ tài liệu. File có thể rỗng hoặc không có nội dung chữ."
-                if file_ext in self.IMAGE_EXTENSIONS:
-                    error_message = (
-                        "OCR không trích xuất được text từ ảnh. "
-                        "Kiểm tra ảnh có chữ rõ ràng và đảm bảo Tesseract + gói ngôn ngữ đã được cài đặt đúng."
-                    )
-                raise ValueError(error_message)
-
-            artifact_info = {"raw_file": "", "processed_file": ""}
-            try:
-                artifact_info = persist_uploaded_artifacts(
-                    tmp_path=tmp_path,
-                    original_filename=filename,
-                    extracted_text=text,
-                )
-            except Exception as exc:
-                # Upload/index flow should continue even if archival write fails.
-                logger.warning("Không thể lưu artifact vào data folder cho %s: %s", filename, exc)
-
-            rag_engine = _get_rag_engine()
-            uploaded_at = datetime.utcnow()
-            metadata = {
-                "filename": filename,
-                "file_type": file_ext,
-                "uploaded_at": uploaded_at.isoformat() + "Z",
-                "uploaded_at_ts": uploaded_at.timestamp(),
-            }
-            if artifact_info.get("raw_file"):
-                metadata["data_raw_file"] = artifact_info["raw_file"]
-            if artifact_info.get("processed_file"):
-                metadata["data_processed_file"] = artifact_info["processed_file"]
-
-            chunks_added = rag_engine.add_documents(
-                text=text,
-                metadata=metadata,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                source_segments=source_segments,
-            )
-
-            return {
-                "filename": filename,
-                "file_type": file_ext,
-                "text_length": len(text),
-                "chunks_added": chunks_added,
-                "data_raw_file": artifact_info.get("raw_file"),
-                "data_processed_file": artifact_info.get("processed_file"),
-            }
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-    
     def post(self, request):
         uploaded_files = request.FILES.getlist('files')
         if not uploaded_files and 'file' in request.FILES:
             uploaded_files = [request.FILES['file']]
 
         if not uploaded_files:
-            return Response(
-                {"error": "Không tìm thấy file trong request"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response("Không tìm thấy file trong request", status.HTTP_400_BAD_REQUEST, "UPLOAD_NO_FILE")
 
         chunk_size_raw = request.data.get('chunk_size')
         chunk_overlap_raw = request.data.get('chunk_overlap')
+        upload_session_id_raw = request.data.get('session_id')
 
         try:
             chunk_size = _parse_int(chunk_size_raw, 'chunk_size', min_value=1)
             chunk_overlap = _parse_int(chunk_overlap_raw, 'chunk_overlap', min_value=0)
+            upload_session_id = _parse_session_id(upload_session_id_raw)
             if chunk_size is not None and chunk_overlap is not None and chunk_overlap >= chunk_size:
-                return Response(
-                    {"error": "chunk_overlap phải nhỏ hơn chunk_size"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return _error_response("chunk_overlap phải nhỏ hơn chunk_size", status.HTTP_400_BAD_REQUEST, "UPLOAD_INVALID_CHUNK_PARAMS")
         except ValueError as exc:
-            return Response(
-                {"error": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response(str(exc), status.HTTP_400_BAD_REQUEST, "UPLOAD_INVALID_REQUEST")
         
         try:
-            processed_files = []
-            total_chunks_added = 0
-            total_text_length = 0
-
-            for uploaded_file in uploaded_files:
-                file_result = self._process_single_file(uploaded_file, chunk_size, chunk_overlap)
-                processed_files.append(file_result)
-                total_chunks_added += int(file_result["chunks_added"])
-                total_text_length += int(file_result["text_length"])
+            batch_result = upload_service.process_upload_batch(
+                uploaded_files=uploaded_files,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                owner_session_id=upload_session_id,
+            )
+            processed_files = batch_result["processed_files"]
+            total_chunks_added = int(batch_result["total_chunks_added"])
+            total_text_length = int(batch_result["total_text_length"])
 
             rag_engine = _get_rag_engine()
 
@@ -294,10 +240,7 @@ class UploadDocumentView(APIView):
             })
             
         except Exception as e:
-            return Response(
-                {"error": f"Lỗi xử lý file: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return _error_response(f"Lỗi xử lý file: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR, "UPLOAD_PROCESSING_FAILED")
 
 
 class ChatView(APIView):
@@ -309,39 +252,11 @@ class ChatView(APIView):
 
     @staticmethod
     def _parse_history(history_raw):
-        if history_raw in (None, ""):
-            return []
-
-        if not isinstance(history_raw, list):
-            raise ValueError("history phải là danh sách")
-
-        parsed = []
-        for idx, item in enumerate(history_raw):
-            if not isinstance(item, dict):
-                raise ValueError(f"history[{idx}] không hợp lệ")
-
-            role = str(item.get("role", "")).strip().lower()
-            content = str(item.get("content", "")).strip()
-
-            if role not in {"user", "assistant"}:
-                raise ValueError(f"history[{idx}].role phải là user hoặc assistant")
-            if not content:
-                raise ValueError(f"history[{idx}].content không được để trống")
-
-            parsed.append({"role": role, "content": content})
-
-        return parsed
+        return ChatFlowController.parse_history(history_raw)
 
     @staticmethod
     def _parse_session_id(session_id_raw):
-        if session_id_raw in (None, ""):
-            return None
-
-        session_id = str(session_id_raw).strip()
-        if len(session_id) > 128:
-            raise ValueError("session_id không được dài quá 128 ký tự")
-
-        return session_id
+        return _parse_session_id(session_id_raw)
     
     def post(self, request):
         question = request.data.get('question', '').strip()
@@ -353,13 +268,9 @@ class ChatView(APIView):
         trace_id = _parse_trace_id(request)
         
         if not question:
-            return Response(
-                {"error": "Câu hỏi không được để trống"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response("Câu hỏi không được để trống", status.HTTP_400_BAD_REQUEST, "CHAT_EMPTY_QUESTION")
 
-        rag_engine = _get_rag_engine()
-        top_k_raw = request.data.get('top_k', getattr(rag_engine, 'default_top_k', 5))
+        top_k_raw = request.data.get('top_k', ChatFlowController.default_top_k())
 
         try:
             history = self._parse_history(history_raw)
@@ -367,18 +278,17 @@ class ChatView(APIView):
             use_reranker = _parse_bool(use_reranker_raw, 'use_reranker')
             use_self_rag = _parse_bool(use_self_rag_raw, 'use_self_rag')
             retrieval_mode = _parse_retrieval_mode(retrieval_mode_raw)
-            top_k = _parse_int(top_k_raw, 'top_k', min_value=1) or getattr(rag_engine, 'default_top_k', 5)
+            top_k = _parse_int(top_k_raw, 'top_k', min_value=1) or ChatFlowController.default_top_k()
 
             metadata_filters = _build_metadata_filters(request.data)
+            if session_id and not metadata_filters.get("owner_session_ids"):
+                metadata_filters["owner_session_ids"] = [session_id, LEGACY_OWNER_SESSION_ID]
         except ValueError as exc:
-            return Response(
-                {"error": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response(str(exc), status.HTTP_400_BAD_REQUEST, "CHAT_INVALID_REQUEST")
         
         try:
-            result = rag_engine.chat(
-                question,
+            result = ChatFlowController.run_chat(
+                question=question,
                 history=history,
                 top_k=top_k,
                 session_id=session_id,
@@ -411,10 +321,7 @@ class ChatView(APIView):
             })
             
         except Exception as e:
-            return Response(
-                {"error": f"Lỗi xử lý câu hỏi: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return _error_response(f"Lỗi xử lý câu hỏi: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR, "CHAT_PROCESSING_FAILED")
 
 
 class ChatStreamView(APIView):
@@ -429,33 +336,28 @@ class ChatStreamView(APIView):
     def post(self, request):
         question = str(request.data.get('question', '')).strip()
         if not question:
-            return Response(
-                {"error": "Câu hỏi không được để trống"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response("Câu hỏi không được để trống", status.HTTP_400_BAD_REQUEST, "CHAT_STREAM_EMPTY_QUESTION")
 
         try:
             history = ChatView._parse_history(request.data.get('history', []))
-            session_id = ChatView._parse_session_id(request.data.get('session_id'))
+            session_id = _parse_session_id(request.data.get('session_id'))
             retrieval_mode = _parse_retrieval_mode(request.data.get('retrieval_mode', 'hybrid'))
-            rag_engine = _get_rag_engine()
-            top_k_raw = request.data.get('top_k', getattr(rag_engine, 'default_top_k', 5))
-            top_k = _parse_int(top_k_raw, 'top_k', min_value=1) or getattr(rag_engine, 'default_top_k', 5)
+            top_k_raw = request.data.get('top_k', ChatFlowController.default_top_k())
+            top_k = _parse_int(top_k_raw, 'top_k', min_value=1) or ChatFlowController.default_top_k()
 
             use_reranker = _parse_bool(request.data.get('use_reranker', True), 'use_reranker')
             use_self_rag = _parse_bool(request.data.get('use_self_rag', True), 'use_self_rag')
             metadata_filters = _build_metadata_filters(request.data)
+            if session_id and not metadata_filters.get("owner_session_ids"):
+                metadata_filters["owner_session_ids"] = [session_id, LEGACY_OWNER_SESSION_ID]
             trace_id = _parse_trace_id(request)
         except ValueError as exc:
-            return Response(
-                {"error": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response(str(exc), status.HTTP_400_BAD_REQUEST, "CHAT_STREAM_INVALID_REQUEST")
 
 
         def _event_stream():
             try:
-                for event in rag_engine.chat_stream(
+                for event in ChatFlowController.run_chat_stream(
                     question=question,
                     history=history,
                     top_k=top_k,
@@ -501,10 +403,7 @@ class SelfRAGCalibrationView(APIView):
             persist_artifact = _parse_bool(persist_artifact_raw, 'persist_artifact')
             retrieval_mode = _parse_retrieval_mode(retrieval_mode_raw)
         except ValueError as exc:
-            return Response(
-                {"error": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response(str(exc), status.HTTP_400_BAD_REQUEST, "SELF_RAG_CALIBRATE_INVALID_REQUEST")
 
         rag_engine = _get_rag_engine()
         try:
@@ -535,14 +434,12 @@ class SelfRAGCalibrationView(APIView):
                 }
             )
         except ValueError as exc:
-            return Response(
-                {"error": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response(str(exc), status.HTTP_400_BAD_REQUEST, "SELF_RAG_CALIBRATE_INVALID_INPUT")
         except Exception as exc:
-            return Response(
-                {"error": f"Lỗi calibrate self-rag: {str(exc)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return _error_response(
+                f"Lỗi calibrate self-rag: {str(exc)}",
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "SELF_RAG_CALIBRATE_FAILED",
             )
 
 
@@ -555,24 +452,13 @@ class ClearSessionMemoryView(APIView):
     parser_classes = [JSONParser]
 
     def post(self, request):
-        session_id_raw = request.data.get('session_id')
-        session_id = str(session_id_raw or '').strip()
-
-        if not session_id:
-            return Response(
-                {"error": "session_id không được để trống"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if len(session_id) > 128:
-            return Response(
-                {"error": "session_id không được dài quá 128 ký tự"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        try:
+            session_id = _parse_session_id(request.data.get('session_id'), required=True)
+        except ValueError as exc:
+            return _error_response(str(exc), status.HTTP_400_BAD_REQUEST, "SESSION_INVALID_ID")
 
         try:
-            rag_engine = _get_rag_engine()
-            cleared = rag_engine.clear_session_memory(session_id)
+            cleared = ChatFlowController.clear_session_memory(session_id)
             return Response(
                 {
                     "success": True,
@@ -582,10 +468,7 @@ class ClearSessionMemoryView(APIView):
                 }
             )
         except Exception as e:
-            return Response(
-                {"error": f"Lỗi xóa memory hội thoại: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return _error_response(f"Lỗi xóa memory hội thoại: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR, "SESSION_CLEAR_FAILED")
 
 
 class StatusView(APIView):
@@ -604,11 +487,7 @@ class StatusView(APIView):
                 **stats
             })
         except Exception as e:
-            return Response({
-                "success": False,
-                "status": "error",
-                "error": str(e)
-            })
+            return _error_response(str(e), status.HTTP_500_INTERNAL_SERVER_ERROR, "STATUS_FETCH_FAILED")
 
 
 class ClearVectorStoreView(APIView):
@@ -658,14 +537,12 @@ class ClearVectorStoreView(APIView):
             
             return Response(response_payload)
         except ValueError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response(str(e), status.HTTP_400_BAD_REQUEST, "VECTOR_CLEAR_INVALID_REQUEST")
         except Exception as e:
-            return Response(
-                {"error": f"Lỗi xóa vector store: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return _error_response(
+                f"Lỗi xóa vector store: {str(e)}",
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "VECTOR_CLEAR_FAILED",
             )
 
 
@@ -682,15 +559,13 @@ class DeleteDocumentByFilenameView(APIView):
         filename = str(filename_raw or '').strip()
 
         if not filename:
-            return Response(
-                {"error": "filename không được để trống"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response("filename không được để trống", status.HTTP_400_BAD_REQUEST, "DOCUMENT_DELETE_EMPTY_FILENAME")
 
         if len(filename) > 255:
-            return Response(
-                {"error": "filename không được dài quá 255 ký tự"},
-                status=status.HTTP_400_BAD_REQUEST
+            return _error_response(
+                "filename không được dài quá 255 ký tự",
+                status.HTTP_400_BAD_REQUEST,
+                "DOCUMENT_DELETE_INVALID_FILENAME",
             )
 
         try:
@@ -702,9 +577,10 @@ class DeleteDocumentByFilenameView(APIView):
                 and result["removed_source_documents"] == 0
                 and int(result.get("removed_qdrant_points", 0)) == 0
             ):
-                return Response(
-                    {"error": "Không tìm thấy tài liệu tương ứng để xóa"},
-                    status=status.HTTP_404_NOT_FOUND
+                return _error_response(
+                    "Không tìm thấy tài liệu tương ứng để xóa",
+                    status.HTTP_404_NOT_FOUND,
+                    "DOCUMENT_NOT_FOUND",
                 )
 
             return Response(
@@ -720,14 +596,12 @@ class DeleteDocumentByFilenameView(APIView):
                 }
             )
         except ValueError as exc:
-            return Response(
-                {"error": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response(str(exc), status.HTTP_400_BAD_REQUEST, "DOCUMENT_DELETE_INVALID_REQUEST")
         except Exception as exc:
-            return Response(
-                {"error": f"Lỗi xóa tài liệu: {str(exc)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return _error_response(
+                f"Lỗi xóa tài liệu: {str(exc)}",
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "DOCUMENT_DELETE_FAILED",
             )
 
 
@@ -756,10 +630,7 @@ class ChunkStrategyEvaluationView(APIView):
             parsed_chunk_overlaps = [_parse_int(item, 'chunk_overlap', min_value=0) for item in chunk_overlaps]
             parsed_top_k = _parse_int(top_k, 'top_k', min_value=1)
         except ValueError as exc:
-            return Response(
-                {"error": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response(str(exc), status.HTTP_400_BAD_REQUEST, "CHUNK_STRATEGY_INVALID_REQUEST")
 
         rag_engine = _get_rag_engine()
         try:
@@ -770,14 +641,12 @@ class ChunkStrategyEvaluationView(APIView):
                 top_k=parsed_top_k or 3,
             )
         except ValueError as exc:
-            return Response(
-                {"error": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response(str(exc), status.HTTP_400_BAD_REQUEST, "CHUNK_STRATEGY_INVALID_INPUT")
         except Exception as exc:
-            return Response(
-                {"error": f"Lỗi đánh giá chunk strategy: {str(exc)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return _error_response(
+                f"Lỗi đánh giá chunk strategy: {str(exc)}",
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "CHUNK_STRATEGY_EVALUATION_FAILED",
             )
 
         return Response(
@@ -814,10 +683,7 @@ class RetrievalBenchmarkView(APIView):
                 raise ValueError("retrieval_modes phải có ít nhất một giá trị hợp lệ")
             metadata_filters = _build_metadata_filters(request.data)
         except ValueError as exc:
-            return Response(
-                {"error": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response(str(exc), status.HTTP_400_BAD_REQUEST, "RETRIEVAL_BENCHMARK_INVALID_REQUEST")
 
         rag_engine = _get_rag_engine()
         try:
@@ -828,14 +694,12 @@ class RetrievalBenchmarkView(APIView):
                 metadata_filters=metadata_filters,
             )
         except ValueError as exc:
-            return Response(
-                {"error": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return _error_response(str(exc), status.HTTP_400_BAD_REQUEST, "RETRIEVAL_BENCHMARK_INVALID_INPUT")
         except Exception as exc:
-            return Response(
-                {"error": f"Lỗi benchmark retrieval: {str(exc)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return _error_response(
+                f"Lỗi benchmark retrieval: {str(exc)}",
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "RETRIEVAL_BENCHMARK_FAILED",
             )
 
         return Response(

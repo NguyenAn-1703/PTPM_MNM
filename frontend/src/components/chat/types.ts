@@ -11,7 +11,7 @@ export interface Message {
     isFollowUpRewrite?: boolean;
     confidenceScore?: number;
     confidenceLabel?: "low" | "medium" | "high";
-    retrievalMode?: "vector" | "hybrid" | "hybrid_multivector";
+    retrievalMode?: "vector" | "hybrid" | "hybrid_rerank" | "hybrid_multivector";
     selfRagApplied?: boolean;
     rerankerModel?: string | null;
     traceId?: string;

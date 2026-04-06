@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import "./styles/index";
-import { api, type Context, type RetrievalMode, type StatusResponse } from "./services/api";
+import { api, type RetrievalMode, type StatusResponse } from "./services/api";
 import { Sidebar, FileUpload, ChatInterface, SettingsDialog } from "./components";
 import type { Message } from "./components/ChatInterface";
+import { useChatController } from "./hooks";
 
 interface ChatSessionPayload {
     id: string;
@@ -30,7 +31,6 @@ function App() {
     const [status, setStatus] = useState<StatusResponse | null>(null);
     const [isLoadingStatus, setIsLoadingStatus] = useState(true);
     const [isUploading, setIsUploading] = useState(false);
-    const [isChatLoading, setIsChatLoading] = useState(false);
     const [documentCount, setDocumentCount] = useState(0);
     const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
     const [chatSessions, setChatSessions] = useState<ChatSessionPayload[]>([]);
@@ -49,6 +49,14 @@ function App() {
     const [isDocumentDialogOpen, setIsDocumentDialogOpen] = useState(false);
     const [deletingFilename, setDeletingFilename] = useState<string | null>(null);
     const historyLimit = status?.history_max_messages || 7;
+    const { isChatLoading, handleChat } = useChatController({
+        activeSessionId,
+        retrievalMode,
+        topK,
+        selectedFilenameFilter,
+        useReranker,
+        useSelfRag,
+    });
 
     // Load all sessions + active session from sessionStorage
     useEffect(() => {
@@ -159,7 +167,10 @@ function App() {
 
         setIsUploading(true);
         try {
-            const res = await api.uploadFiles(files, options);
+            const res = await api.uploadFiles(files, {
+                ...options,
+                sessionId: activeSessionId || undefined,
+            });
             if (res.success) {
                 showNotification("success", res.message);
                 const newFiles = res.processed_files?.map((item) => item.filename) || [res.filename];
@@ -175,93 +186,6 @@ function App() {
             setIsUploading(false);
         }
     };
-
-    const handleChat = useCallback(async (
-        message: string,
-        history: { role: "user" | "assistant"; content: string }[],
-        callbacks?: { onToken?: (token: string) => void },
-    ): Promise<{
-        answer: string;
-        contexts: Context[];
-        standaloneQuestion?: string;
-        isFollowUpRewrite?: boolean;
-        confidenceScore?: number;
-        confidenceLabel?: "low" | "medium" | "high";
-        retrievalMode?: RetrievalMode;
-        selfRagApplied?: boolean;
-        rerankerModel?: string | null;
-        traceId?: string;
-        timingsMs?: {
-            retrieve?: number;
-            rerank?: number;
-            generation?: number;
-            evaluation?: number;
-            total?: number;
-        };
-    }> => {
-        setIsChatLoading(true);
-        try {
-            const streamRes = await api.chatStream(
-                message,
-                history,
-                activeSessionId,
-                {
-                    retrievalMode,
-                    topK,
-                    filenames: selectedFilenameFilter !== "all" ? [selectedFilenameFilter] : [],
-                    useReranker,
-                    useSelfRag,
-                },
-                {
-                    onToken: callbacks?.onToken,
-                },
-            );
-
-            if (streamRes.success) {
-                return {
-                    answer: streamRes.answer,
-                    contexts: streamRes.contexts,
-                    standaloneQuestion: streamRes.standalone_question,
-                    isFollowUpRewrite: Boolean(streamRes.rewritten),
-                    confidenceScore: streamRes.confidence_score,
-                    confidenceLabel: streamRes.confidence_label,
-                    retrievalMode: streamRes.retrieval_mode,
-                    selfRagApplied: streamRes.self_rag_applied,
-                    rerankerModel: streamRes.reranker?.model || null,
-                    traceId: streamRes.trace_id,
-                    timingsMs: streamRes.timings_ms,
-                };
-            }
-
-            const res = await api.chat(message, history, activeSessionId, {
-                retrievalMode,
-                topK,
-                filenames: selectedFilenameFilter !== "all" ? [selectedFilenameFilter] : [],
-                useReranker,
-                useSelfRag,
-            });
-            if (res.success) {
-                return {
-                    answer: res.answer,
-                    contexts: res.contexts,
-                    standaloneQuestion: res.standalone_question,
-                    isFollowUpRewrite: Boolean(res.rewritten),
-                    confidenceScore: res.confidence_score,
-                    confidenceLabel: res.confidence_label,
-                    retrievalMode: res.retrieval_mode,
-                    selfRagApplied: res.self_rag_applied,
-                    rerankerModel: res.reranker?.model || null,
-                    traceId: res.trace_id,
-                    timingsMs: res.timings_ms,
-                };
-            }
-            return { answer: res.error || "Đã xảy ra lỗi", contexts: [] };
-        } catch {
-            return { answer: "Lỗi kết nối đến server", contexts: [] };
-        } finally {
-            setIsChatLoading(false);
-        }
-    }, [activeSessionId, retrievalMode, selectedFilenameFilter, topK, useReranker, useSelfRag]);
 
     const handleResetSessionContext = async () => {
         if (!activeSessionId) return;

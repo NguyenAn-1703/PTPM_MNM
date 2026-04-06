@@ -69,6 +69,31 @@ class RagStorage:
         )
         self.save_source_documents(docs)
 
+    def backfill_owner_session_id(self, default_owner_session_id: str = "legacy") -> int:
+        """Backfill missing owner_session_id in source registry metadata."""
+        docs = self.load_source_documents()
+        if not docs:
+            return 0
+
+        updated = 0
+        for item in docs:
+            metadata = item.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+                item["metadata"] = metadata
+
+            owner_session_id = str(metadata.get("owner_session_id", "")).strip()
+            if owner_session_id:
+                continue
+
+            metadata["owner_session_id"] = default_owner_session_id
+            updated += 1
+
+        if updated > 0:
+            self.save_source_documents(docs)
+
+        return updated
+
     def remove_source_documents_by_filename(self, filename: str) -> int:
         docs = self.load_source_documents()
         if not docs:

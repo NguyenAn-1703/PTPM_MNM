@@ -102,6 +102,15 @@ class QdrantVectorAdapter:
                 )
             )
 
+        owner_session_ids = [item for item in (metadata_filters.get("owner_session_ids") or []) if str(item).strip()]
+        if owner_session_ids:
+            must_conditions.append(
+                self._models.FieldCondition(
+                    key="metadata.owner_session_id",
+                    match=self._models.MatchAny(any=owner_session_ids),
+                )
+            )
+
         vector_roles = [item for item in (metadata_filters.get("vector_roles") or []) if str(item).strip()]
         if vector_roles:
             must_conditions.append(

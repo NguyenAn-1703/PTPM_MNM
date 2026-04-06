@@ -15,9 +15,7 @@ class RAGChatPipelineMixin:
     @staticmethod
     def _normalize_retrieval_mode(retrieval_mode: str) -> str:
         normalized = (retrieval_mode or "hybrid").strip().lower()
-        if normalized not in {"vector", "hybrid", "hybrid_multivector"}:
-            return "hybrid"
-        if normalized == "hybrid_multivector":
+        if normalized not in {"vector", "hybrid", "hybrid_rerank", "hybrid_multivector"}:
             return "hybrid"
         return normalized
 
@@ -30,18 +28,26 @@ class RAGChatPipelineMixin:
         use_reranker: bool,
     ) -> Dict[str, Any]:
         candidate_top_k = max(top_k * 2, int(getattr(self, "context_candidate_pool", 12)))
+        effective_use_reranker = bool(use_reranker or retrieval_mode == "hybrid_rerank")
 
         retrieve_started = time.perf_counter()
         if retrieval_mode == "vector":
-            contexts = self._multi_vector_search(query, top_k=candidate_top_k, metadata_filters=metadata_filters)
+            contexts = self.search(query, top_k=candidate_top_k, metadata_filters=metadata_filters)
             contexts = self._filter_relevant_contexts(contexts)
+        elif retrieval_mode == "hybrid_multivector":
+            original_multi_vector = bool(getattr(self, "enable_multi_vector", False))
+            self.enable_multi_vector = True
+            try:
+                contexts = self._hybrid_search(query, top_k=candidate_top_k, metadata_filters=metadata_filters)
+            finally:
+                self.enable_multi_vector = original_multi_vector
         else:
             contexts = self._hybrid_search(query, top_k=candidate_top_k, metadata_filters=metadata_filters)
         retrieve_ms = (time.perf_counter() - retrieve_started) * 1000
 
         rerank_info = {"contexts": contexts[:top_k], "used": False, "model": None}
         rerank_started = time.perf_counter()
-        if use_reranker:
+        if effective_use_reranker:
             rerank_info = self._rerank_contexts(query, contexts, top_k=top_k)
             contexts = rerank_info["contexts"]
         else:

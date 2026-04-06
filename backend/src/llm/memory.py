@@ -74,8 +74,8 @@ class SessionMemoryStore:
             return uuid.uuid4().hex
 
         normalized = re.sub(r"[^A-Za-z0-9_-]", "", normalized)
-        if len(normalized) > 64:
-            normalized = normalized[:64]
+        if len(normalized) > 128:
+            normalized = normalized[:128]
 
         return normalized or uuid.uuid4().hex
 
